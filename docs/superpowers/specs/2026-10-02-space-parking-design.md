@@ -14,6 +14,8 @@ Goal: **park** a Space so it consumes no runtime resources, and **resume** it la
 - A native "PARKED" sidebar section or context-menu entry. Plugins cannot add these in 0.9.0; a separate upstream PR may follow.
 - Automatic parking of inactive Spaces.
 - Agents other than Claude Code and Codex. Their panes restore as plain shells.
+- Spaces with herdr worktree membership (parent or linked). Parking them is refused in v1.
+- Processes that were already reparented to init/launchd before park. These cannot be attributed to the Space and are not reaped.
 
 ## Facts this design relies on (verified in herdr v0.9.0 source)
 
@@ -133,3 +135,18 @@ A parked Space leaves:
 - Unit tests (`node:test`) for every module, with fake socket/client and fixtures.
 - Gated integration test against an isolated herdr server. It parks a Space whose pane runs a background job and a `setsid` process, asserts both are gone, resumes it, and asserts the layout is back.
 - Manual smoke test with real Claude and Codex.
+
+## Review amendments
+
+The Codex review (2026-10-02) added the following:
+
+- process identity checks (pid + start time + command);
+- mandatory process inspection;
+- durable `pending_reap` and the `cleanup_failed` state;
+- strict Codex resolution and occupancy checks;
+- an owner-checked resume lock;
+- record validation;
+- a git-toplevel cwd;
+- the worktree scope cut.
+
+See the "Amendments" section of the plan.

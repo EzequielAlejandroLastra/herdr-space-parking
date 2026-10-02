@@ -2188,3 +2188,55 @@ Follow "Manual smoke test" in your real herdr. Expected: the Claude conversation
 git add test/integration/park-resume.test.js README.md
 git commit -m "test: integration proof that parked spaces release processes; docs"
 ```
+
+---
+
+## Amendments after Codex review (2026-10-02, debate `herdr-space-parking-plan-review`)
+
+These amendments override the task code above wherever they conflict. Each amended task keeps its TDD cycle: add the listed tests first.
+
+**A1 — Process identity (Task 6).**
+- `parsePs` reads `ps -axo pid=,ppid=,lstart=,command=`. `lstart` is 5 tokens.
+- Identity is `{pid, start, command}`. `survivors()` matches all three.
+- `reap()` re-reads the table right before SIGTERM and again before SIGKILL, and signals only identity-matching entries. After a final short wait it returns `{ killed, stillAlive }`.
+- Accepted residual risk: `lstart` has 1-second precision. A pid reused by an identical command that started in the same second could be mis-identified anywhere between the pre-close capture and the last signal (≈ 2.5 s + ps→kill gaps).
+
+**A2 — Inspection is mandatory (Task 7).** If `pane.process_info` fails, or a pane has no `shell_pid`, park returns `failed`. Force cannot bypass this.
+
+**A3 — Durable cleanup (Task 7).**
+- Before `workspace.close`, the record stores `shells` (the identities of the pane shells) and `pending_reap` (the identities of every descendant).
+- After reaping:
+  - if every process is gone: `pending_reap = []` and `state = parked`;
+  - otherwise: `pending_reap = survivors` and `state = cleanup_failed`.
+- `reconcile()` handles `parking` / `park_failed` / `cleanup_failed` records:
+  - **Aborted:** remove the record only if a workspace with `source_workspace_id` exists **and** one of its current panes reports, via `pane.process_info`, a `shell_pid` whose full identity matches a saved shell.
+  - **Otherwise:** reap `pending_reap`, then set `parked` or `cleanup_failed`.
+- `resume()` re-reaps `pending_reap` first, and refuses while any identity-matching process is still alive.
+
+**A4 — Resume retry (Task 8).** A `resume_failed` record whose `resumed_workspace_id` exists in `workspace.list` (id match alone) is refused with "close the partially resumed space first".
+
+**A5 — Strict Codex resolution (Task 4).**
+- An id is accepted only when the title-derived thread name maps to exactly one thread whose rollout cwd equals the pane cwd.
+- `method` is `verified` when that id equals herdr's reported id, and `inferred` otherwise.
+- A reported id without title confirmation is `unresolved`.
+- In park, if two Codex panes resolve to the same id, both become unresolved.
+
+**A6 — Occupancy and lock (Task 8).**
+- Occupancy is made of:
+  - Claude ids from `agent.list`;
+  - Codex ids from running the strict resolver over every live Codex pane in `session.snapshot`;
+  - ids sent during the current run.
+- A Codex leaf is skipped (with a warning) if any live Codex pane in the same cwd is unresolved.
+- Resume holds `$STATE_DIR/resume.lock`, created with `wx` and holding `{pid, start}`. It is reclaimed only when that owner identity is gone.
+- Warnings say "open in a herdr pane".
+
+**A7 — Record validation (Task 2).** `list()` / `get()` return only records with `v === 1`, `id` equal to the filename stem, a known `state`, and an array `tabs`. Anything else is ignored and never modified. Known states: `parking`, `parked`, `park_failed`, `cleanup_failed`, `resuming`, `resume_failed`.
+
+**A8 — Stable cwd (Task 7).** `record.cwd` is `git -C <firstLeafCwd> rev-parse --show-toplevel`, falling back to `firstLeafCwd`. A test deletes the first pane's subdirectory and resumes successfully.
+
+**A9 — Worktree scope (Task 5).** Any workspace with `worktree` membership is refused ("worktree spaces are not supported yet"). Force cannot bypass this. This is a v1 non-goal.
+
+**A10 — Integration test (Task 10).**
+- The escaped process is created by a Python parent that stays alive and forks a child that calls `setsid()`.
+- The test asserts that the child's session differs from the shell's before parking.
+- Documented limitation: processes reparented to init/launchd **before** park cannot be attributed and are not reaped.
