@@ -35,6 +35,36 @@ async function finishCleanup(record, { readTable, reapProcs, sleep }) {
   record.state = stillAlive.length > 0 ? 'cleanup_failed' : 'parked';
 }
 
+// Everything park needs to know about a space before touching it: its layout, what runs in each
+// pane, its agent sessions and what would block parking it. Read-only.
+export async function inspectWorkspace({ client, snapshot, workspaceId, codexResolver }) {
+  if (!snapshot.workspaces.some((w) => w.workspace_id === workspaceId)) return { error: `workspace ${workspaceId} not found` };
+  const panes = snapshot.panes.filter((p) => p.workspace_id === workspaceId);
+  const tabs = snapshot.tabs.filter((t) => t.workspace_id === workspaceId);
+
+  const layouts = {};
+  for (const tab of tabs) layouts[tab.tab_id] = (await client.call('layout.export', { tab_id: tab.tab_id })).layout;
+
+  // Without each pane's shell we can neither see what is running nor find what must be reaped.
+  const processInfos = {};
+  for (const pane of panes) {
+    let info;
+    try {
+      info = (await client.call('pane.process_info', { pane_id: pane.pane_id })).process_info;
+    } catch (err) {
+      return { error: `cannot inspect pane ${pane.pane_id}: ${err.message}` };
+    }
+    if (!info?.shell_pid) return { error: `cannot inspect pane ${pane.pane_id}: no shell process` };
+    processInfos[pane.pane_id] = info;
+  }
+
+  const codexResults = resolveCodexPanes(panes, codexResolver);
+  const agentSessions = Object.fromEntries(Object.entries(codexResults).map(([paneId, result]) => [paneId, result.ref]));
+  const captured = captureWorkspace({ snapshot, workspaceId, layouts, processInfos, agentSessions });
+  const { blockers, warnings, fatal } = preflight({ snapshot, workspaceId, captured, codexResults });
+  return { panes, processInfos, captured, blockers, warnings, fatal };
+}
+
 // One park at a time: two parks of the same space would otherwise both save a record for it.
 export async function park(args) {
   const { store, deps = {} } = args;
@@ -60,32 +90,9 @@ async function parkLocked({ client, store, workspaceId, force = false, codexReso
   } = deps;
 
   const { snapshot } = await client.call('session.snapshot');
-  if (!snapshot.workspaces.some((w) => w.workspace_id === workspaceId)) {
-    return { status: 'failed', error: `workspace ${workspaceId} not found` };
-  }
-  const panes = snapshot.panes.filter((p) => p.workspace_id === workspaceId);
-  const tabs = snapshot.tabs.filter((t) => t.workspace_id === workspaceId);
-
-  const layouts = {};
-  for (const tab of tabs) layouts[tab.tab_id] = (await client.call('layout.export', { tab_id: tab.tab_id })).layout;
-
-  // Without each pane's shell we can neither see what is running nor find what must be reaped.
-  const processInfos = {};
-  for (const pane of panes) {
-    let info;
-    try {
-      info = (await client.call('pane.process_info', { pane_id: pane.pane_id })).process_info;
-    } catch (err) {
-      return { status: 'failed', error: `cannot inspect pane ${pane.pane_id}: ${err.message}` };
-    }
-    if (!info?.shell_pid) return { status: 'failed', error: `cannot inspect pane ${pane.pane_id}: no shell process` };
-    processInfos[pane.pane_id] = info;
-  }
-
-  const codexResults = resolveCodexPanes(panes, codexResolver);
-  const agentSessions = Object.fromEntries(Object.entries(codexResults).map(([paneId, result]) => [paneId, result.ref]));
-  const captured = captureWorkspace({ snapshot, workspaceId, layouts, processInfos, agentSessions });
-  const { blockers, warnings, fatal } = preflight({ snapshot, workspaceId, captured, codexResults });
+  const inspection = await inspectWorkspace({ client, snapshot, workspaceId, codexResolver });
+  if (inspection.error) return { status: 'failed', error: inspection.error };
+  const { panes, processInfos, captured, blockers, warnings, fatal } = inspection;
   if (fatal.length > 0) return { status: 'refused', forceable: false, blockers: fatal, warnings };
   if (blockers.length > 0 && !force) return { status: 'refused', forceable: true, blockers, warnings };
 
