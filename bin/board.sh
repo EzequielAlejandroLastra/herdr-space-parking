@@ -8,12 +8,13 @@ set -u
 
 ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="${HSP_CLI:-node $ROOT/src/cli.js}"
-PARKED_DIR="${HERDR_PLUGIN_STATE_DIR:-}/parked"
+STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-}"
 
 cli() { $CLI "$@"; }
 
-# Names of the record files; changes whenever a space is parked, resumed or deleted.
-signature() { (cd "$PARKED_DIR" 2>/dev/null && echo *.json); }
+# File names under parked/ and refresh/: they change whenever a space is parked, resumed or
+# deleted, and whenever the plugin syncs the board (refresh/ holds a fresh marker each time).
+signature() { (cd "$STATE_DIR" 2>/dev/null && echo parked/*.json refresh/*); }
 
 terminal_rows() {
   local rows

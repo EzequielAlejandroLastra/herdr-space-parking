@@ -1,4 +1,5 @@
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { leaves } from './capture.js';
 import { ago } from './util.js';
@@ -9,6 +10,22 @@ import { ago } from './util.js';
 const BOARD_PREFIX = 'Parked (';
 const boardLabel = (count) => `${BOARD_PREFIX}${count})`;
 const boardFile = (store) => join(dirname(store.dir), 'board.json');
+
+// Identifies the board script; a running board with another version is restarted, because bash
+// keeps executing the script it loaded at start even after the plugin is updated.
+export function boardVersion() {
+  const script = readFileSync(new URL('../bin/board.sh', import.meta.url));
+  return createHash('sha1').update(script).digest('hex').slice(0, 12);
+}
+
+// The board loop re-renders when the names in parked/ or refresh/ change; record state changes
+// (parking -> parked) keep the same file name, so every sync leaves a new refresh marker.
+function touchRefresh(store) {
+  const dir = join(dirname(store.dir), 'refresh');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${Date.now()}-${process.pid}`), '');
+}
 
 function readBoard(store) {
   try {
@@ -80,6 +97,7 @@ export async function boardSync({ client, store, env }) {
 
   if (count === 0) {
     rmSync(boardFile(store), { force: true });
+    rmSync(join(dirname(store.dir), 'refresh'), { recursive: true, force: true });
     if (board) await client.call('workspace.close', { workspace_id: board.workspace_id });
     return { workspaceId: null };
   }
@@ -89,15 +107,17 @@ export async function boardSync({ client, store, env }) {
     const workspaceId = created.workspace.workspace_id;
     const paneId = await applyBoardPane(client, created.tab.tab_id, env);
     await client.call('workspace.move', { workspace_id: workspaceId, insert_index: workspaces.length });
-    writeFileSync(boardFile(store), JSON.stringify({ workspace_id: workspaceId, pane_id: paneId }));
+    writeFileSync(boardFile(store), JSON.stringify({ workspace_id: workspaceId, pane_id: paneId, version: boardVersion() }));
+    touchRefresh(store);
     return { workspaceId };
   }
 
   if (board.label !== boardLabel(count)) await client.call('workspace.rename', { workspace_id: board.workspace_id, label: boardLabel(count) });
-  if (!(await runsBoard(client, saved.pane_id))) {
-    // herdr restores panes as plain shells after a restart; put the board back.
+  // herdr restores panes as plain shells after a restart, and an updated plugin needs a fresh loop.
+  if (saved.version !== boardVersion() || !(await runsBoard(client, saved.pane_id))) {
     const paneId = await applyBoardPane(client, board.active_tab_id, env);
-    writeFileSync(boardFile(store), JSON.stringify({ workspace_id: board.workspace_id, pane_id: paneId }));
+    writeFileSync(boardFile(store), JSON.stringify({ workspace_id: board.workspace_id, pane_id: paneId, version: boardVersion() }));
   }
+  touchRefresh(store);
   return { workspaceId: board.workspace_id };
 }

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { boardSync, deleteParked, formatBoardList, isBoardWorkspace } from '../src/board.js';
+import { readdirSync } from 'node:fs';
+import { boardSync, boardVersion, deleteParked, formatBoardList, isBoardWorkspace } from '../src/board.js';
 import { createStore } from '../src/store.js';
 import { fakeClient, parkedRecord } from './fixtures.js';
 
@@ -42,12 +43,12 @@ test('creates the board space at the end of the sidebar when something is parked
   assert.equal(apply.root.env.HERDR_PLUGIN_STATE_DIR, env.HERDR_PLUGIN_STATE_DIR);
   assert.equal(apply.root.env.HERDR_SOCKET_PATH, '/s.sock');
   assert.deepEqual(client.calls.find((c) => c.method === 'workspace.move').params, { workspace_id: 'wP', insert_index: 1 });
-  assert.deepEqual(JSON.parse(readFileSync(boardFile, 'utf8')), { workspace_id: 'wP', pane_id: 'wP:p2' });
+  assert.deepEqual(JSON.parse(readFileSync(boardFile, 'utf8')), { workspace_id: 'wP', pane_id: 'wP:p2', version: boardVersion() });
 });
 
 test('an existing board only gets its count updated', async () => {
   const { store, client, env } = setup({
-    board: { workspace_id: 'wP', pane_id: 'wP:p2' },
+    board: { workspace_id: 'wP', pane_id: 'wP:p2', version: boardVersion() },
     workspaces: [{ workspace_id: 'w1', label: 'api' }, { workspace_id: 'wP', label: 'Parked (3)', active_tab_id: 'wP:t1' }],
   });
   await boardSync({ client, store, env });
@@ -118,4 +119,29 @@ test('deleteParked removes a record but never one that is being resumed', () => 
   assert.equal(store.get('rec-1'), null);
   assert.match(deleteParked({ store, id: 'busy' }).error, /being resumed/);
   assert.match(deleteParked({ store, id: 'nope' }).error, /no parked space nope/);
+});
+
+test('a board running an older board script is restarted', async () => {
+  const { store, client, env, boardFile } = setup({
+    board: { workspace_id: 'wP', pane_id: 'wP:p2', version: 'old' },
+    workspaces: [{ workspace_id: 'wP', label: 'Parked (1)', active_tab_id: 'wP:t1' }],
+  });
+  await boardSync({ client, store, env });
+  assert.ok(methods(client).includes('layout.apply'));
+  assert.equal(JSON.parse(readFileSync(boardFile, 'utf8')).version, boardVersion());
+});
+
+test('every sync leaves a single fresh refresh marker for the board loop', async () => {
+  const { store, client, env } = setup({
+    board: { workspace_id: 'wP', pane_id: 'wP:p2', version: boardVersion() },
+    workspaces: [{ workspace_id: 'wP', label: 'Parked (1)', active_tab_id: 'wP:t1' }],
+  });
+  await boardSync({ client, store, env });
+  const first = readdirSync(join(env.HERDR_PLUGIN_STATE_DIR, 'refresh'));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await boardSync({ client, store, env });
+  const second = readdirSync(join(env.HERDR_PLUGIN_STATE_DIR, 'refresh'));
+  assert.equal(first.length, 1);
+  assert.equal(second.length, 1);
+  assert.notEqual(first[0], second[0]);
 });
