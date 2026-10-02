@@ -40,11 +40,11 @@ Uncommitted changes stay on disk; parking only reports how many files are dirty.
 
 ## What resuming does
 
-It recreates the Space in its directory, rebuilds the tabs and splits, and runs `claude --resume <id>` / `codex --no-daemon resume <id>` in the right panes. Dev servers are not restarted. A session that is already open in another herdr pane is not opened a second time.
+It recreates the Space in its directory, rebuilds the tabs and splits, and runs `claude --resume <id>` / `codex resume <id>` in the right panes. Dev servers are not restarted. A session that is already open in another herdr pane is not opened a second time.
 
 ## Codex note
 
-Codex ≥ 0.157 reports sessions through a shared daemon, so herdr can miss or misattribute Codex session ids (herdr#4649). The plugin double-checks every Codex id against `~/.codex` before trusting it. If an id is missing, it infers the session from the pane title. If it can't be sure, it asks you to force-park, and that pane then restores as a plain shell. Resumed Codex sessions run with `--no-daemon`, so they report correctly from then on.
+Codex ≥ 0.157 reports sessions through a shared daemon, so herdr can miss or misattribute Codex session ids (herdr#4649). The plugin double-checks every Codex id against `~/.codex` before trusting it. If an id is missing, it infers the session from the pane title. If it can't be sure, it asks you to force-park, and that pane then restores as a plain shell. Resumed Codex sessions reattach to the shared Codex daemon, which still holds the conversation after parking.
 
 ## Limitations
 

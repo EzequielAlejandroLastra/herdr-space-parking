@@ -11,8 +11,9 @@ const RESUMABLE_STATES = new Set(['parked', 'resume_failed', 'cleanup_failed']);
 export function resumeArgv(session) {
   if (!session || session.kind !== 'id') return null;
   if (session.source === 'herdr:claude' && session.agent === 'claude') return ['claude', '--resume', session.value];
-  // --no-daemon: Codex's shared app-server daemon breaks per-pane session reporting (herdr#4649).
-  if (session.source === 'herdr:codex' && session.agent === 'codex') return ['codex', '--no-daemon', 'resume', session.value];
+  // No --no-daemon: parking stops the Codex window, but the shared app-server daemon keeps the thread
+  // open, and a standalone Codex then refuses it ("This conversation is open in another app").
+  if (session.source === 'herdr:codex' && session.agent === 'codex') return ['codex', 'resume', session.value];
   return null;
 }
 

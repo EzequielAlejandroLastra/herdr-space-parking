@@ -44,9 +44,9 @@ const run = ({ client, store, deps, codexResolver }, id = 'rec-1', overrides = {
   resume({ client, store, id, codexResolver, deps: { ...deps, ...overrides } });
 const sent = (client) => client.calls.filter((c) => c.method === 'pane.send_text').map((c) => c.params);
 
-test('resumeArgv supports claude and codex (without the shared daemon) only', () => {
+test('resumeArgv supports claude and codex (through the shared daemon that still holds the thread) only', () => {
   assert.deepEqual(resumeArgv(CLAUDE_REF), ['claude', '--resume', CLAUDE_REF.value]);
-  assert.deepEqual(resumeArgv(CODEX_REF), ['codex', '--no-daemon', 'resume', CODEX_REF.value]);
+  assert.deepEqual(resumeArgv(CODEX_REF), ['codex', 'resume', CODEX_REF.value]);
   assert.equal(resumeArgv({ ...CLAUDE_REF, kind: 'path' }), null);
   assert.equal(resumeArgv({ source: 'herdr:opencode', agent: 'opencode', kind: 'id', value: 'x' }), null);
   assert.equal(resumeArgv(null), null);
@@ -79,7 +79,7 @@ test('resume recreates tabs, types resume commands, focuses and deletes the reco
   assert.equal(applies[1].params.tab_label, 'review');
   assert.deepEqual(sent(ctx.client), [
     { pane_id: 'w9:p1', text: `claude --resume ${CLAUDE_REF.value}\r` },
-    { pane_id: 'w9:p2', text: `codex --no-daemon resume ${CODEX_REF.value}\r` },
+    { pane_id: 'w9:p2', text: `codex resume ${CODEX_REF.value}\r` },
   ]);
   assert.deepEqual(ctx.client.calls.find((c) => c.method === 'tab.focus').params, { tab_id: 'w9:t2' });
   assert.ok(result.warnings.some((w) => w.includes('"npm run dev" was running')));
