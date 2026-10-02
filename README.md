@@ -68,7 +68,7 @@ The board disappears when nothing is parked. After a herdr restart or a plugin u
 | `Enter` | Park the selected spaces, or the current one if none is selected |
 | `q` | Close |
 
-Spaces are parked one at a time, with progress shown; the space you were on goes last. A summary then lists what was parked and what was not, and why. Blocked spaces are never forced in bulk: use "Park space (force)" on them one at a time. The "Parked" board and worktree spaces are not offered.
+On `Enter` the popup closes right away. Parking continues in the background, up to 4 spaces at a time (the space you were on goes last), and is reported through herdr notifications: one when it starts, and a summary of what was parked and what was not, and why. Three idle spaces take about a second. Blocked spaces are never forced in bulk: use "Park space (force)" on them one at a time. The "Parked" board and worktree spaces are not offered.
 
 ## What parking does
 
