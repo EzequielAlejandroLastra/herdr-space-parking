@@ -16,19 +16,28 @@ Add to `~/.config/herdr/config.toml`, choosing keys that are free in your setup:
 
 ```toml
 [[keys.command]]
-key = "prefix+p"
+key = "prefix+a"
 type = "plugin_action"
 command = "herdr-space-parking.park"
 description = "park space"
 
 [[keys.command]]
-key = "prefix+r"
+key = "prefix+u"
 type = "plugin_action"
 command = "herdr-space-parking.resume"
 description = "resume parked space"
 ```
 
 `herdr-space-parking.park-force` parks even when the Space has blockers. The CLI forms are `herdr plugin action invoke herdr-space-parking.park` and `herdr plugin action invoke herdr-space-parking.list`.
+
+## Parked spaces in the sidebar
+
+While at least one space is parked, the plugin keeps a **"Parked (N)"** space at the end of the Spaces sidebar. Its pane lists every parked space (name, how long ago, directory, tabs and agents):
+
+- `<number>` + Enter resumes that space;
+- `d <number>` deletes it after a confirmation. Only the parked record is removed: the project folder and the Claude/Codex conversations stay on disk.
+
+The same list opens as a popup with the "Resume parked space" action. The board is a single small bash process, and it disappears when nothing is parked. After a herdr restart, the plugin's startup hook rebuilds it.
 
 ## What parking does
 
