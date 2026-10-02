@@ -52,6 +52,27 @@ function attention(record) {
   }
 }
 
+// One bold line per tab, then one line per pane: agent with its conversation title, or a shell
+// with what it was running, plus the pane's folder when it differs from the space's.
+export function tabsDetail(tabs, cwd) {
+  const lines = [];
+  tabs.forEach((tab, index) => {
+    lines.push({ text: '' });
+    lines.push({ text: tab.label ? `Tab "${tab.label}"` : `Tab ${index + 1}`, style: 'bold' });
+    for (const leaf of leaves(tab.root)) {
+      const where = leaf.cwd && leaf.cwd !== cwd ? ` · in ${leaf.cwd.startsWith(`${cwd}/`) ? leaf.cwd.slice(cwd.length + 1) : tilde(leaf.cwd)}` : '';
+      if (leaf.agent) {
+        const title = leaf.title ? `  "${leaf.title}"` : '';
+        lines.push({ text: `  ${icon(leaf.agent)} ${leaf.agent}${title}${where}`, style: leaf.agent in ICONS ? leaf.agent : 'agent' });
+      } else {
+        const running = leaf.was_running ? ` · was running: ${leaf.was_running}` : '';
+        lines.push({ text: `  $ shell${running}${where}`, style: 'dim' });
+      }
+    }
+  });
+  return lines;
+}
+
 export function toItem(record, now = Date.now()) {
   const allLeaves = record.tabs.flatMap((tab) => leaves(tab.root));
   const agents = allLeaves.map((leaf) => leaf.agent).filter(Boolean);
@@ -67,20 +88,7 @@ export function toItem(record, now = Date.now()) {
   const issue = attention(record);
   if (issue) detail.push({ text: `⚠ ${issue}`, style: 'warn' });
 
-  record.tabs.forEach((tab, index) => {
-    detail.push({ text: '' });
-    detail.push({ text: tab.label ? `Tab "${tab.label}"` : `Tab ${index + 1}`, style: 'bold' });
-    for (const leaf of leaves(tab.root)) {
-      const where = leaf.cwd && leaf.cwd !== record.cwd ? ` · in ${leaf.cwd.startsWith(`${record.cwd}/`) ? leaf.cwd.slice(record.cwd.length + 1) : tilde(leaf.cwd)}` : '';
-      if (leaf.agent) {
-        const title = leaf.title ? `  "${leaf.title}"` : '';
-        detail.push({ text: `  ${icon(leaf.agent)} ${leaf.agent}${title}${where}`, style: leaf.agent in ICONS ? leaf.agent : 'agent' });
-      } else {
-        const running = leaf.was_running ? ` · was running: ${leaf.was_running}` : '';
-        detail.push({ text: `  $ shell${running}${where}`, style: 'dim' });
-      }
-    }
-  });
+  detail.push(...tabsDetail(record.tabs, record.cwd));
   for (const warning of record.warnings ?? []) detail.push({ text: `⚠ ${warning}`, style: 'warn' });
 
   const search = [
