@@ -113,3 +113,18 @@ test('park-select lists live spaces and closes on q without parking', async () =
   assert.equal(await done, 0);
   assert.ok(!client.calls.some((c) => c.method === 'workspace.close'));
 });
+
+test('park-batch parks the given spaces under the park lock and reports through notifications', async () => {
+  const { client, env } = setup([]);
+  const base = client.call.bind(client);
+  client.call = async (method, params) => {
+    if (method === 'session.snapshot') return { snapshot: { workspaces: [], panes: [], tabs: [] } };
+    if (method === 'workspace.list') { client.calls.push({ method, params }); return { workspaces: [{ workspace_id: 'wZ', label: 'ghost' }] }; }
+    return base(method, params);
+  };
+  assert.equal(await main(['park-batch', '-', 'wZ'], env, { client }), 0);
+  const notes = client.calls.filter((c) => c.method === 'notification.show').map((c) => c.params);
+  assert.deepEqual(notes[0], { title: 'Parking 1 space…', body: 'ghost' });
+  assert.equal(notes[1].title, 'Parked 0 of 1 space');
+  assert.match(notes[1].body, /ghost: workspace wZ not found/);
+});

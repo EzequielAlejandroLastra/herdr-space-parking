@@ -216,3 +216,23 @@ test('select: a only marks idle spaces that match the current search', async () 
   await h.keys('q');
   await h.done;
 });
+
+test('select: when parking continues in the background the screen closes right away', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const handedOff = [];
+  const done = runSelect({
+    load: async () => [candidate('w1', 'api'), candidate('w2', 'infra')],
+    input,
+    output,
+    size: () => ({ columns: 100, rows: 20 }),
+    park: async (targets) => { handedOff.push(...targets.map((t) => t.id)); return { background: true }; },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  input.write('a');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  input.write('\r');
+  assert.equal(await done, 'background');
+  assert.deepEqual(handedOff, ['w1', 'w2']);
+});

@@ -1,16 +1,17 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { boardSync, deleteParked, formatBoardList, isBoardWorkspace } from './board.js';
-import { listCandidates, parkMany } from './bulk.js';
+import { listCandidates, runBatch } from './bulk.js';
 import { createCodexResolver } from './codex-sessions.js';
 import { createClient } from './herdr-client.js';
-import { park, reconcile } from './park.js';
+import { park, parkUnlocked, reconcile, withParkLock } from './park.js';
 import { resume } from './resume.js';
 import { createStore } from './store.js';
 import { runSelect, runTui } from './tui.js';
 
-const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | park-select | board-list | board-sync | open-picker | open-park-picker';
+const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | park-select | park-batch <focused|-> <id>... | board-list | board-sync | open-picker | open-park-picker';
 const BOARD_IDLE_MS = 60_000;
 
 function pluginContext(env) {
@@ -134,20 +135,49 @@ export async function main(argv, env = process.env, { client: injectedClient, in
       return 0;
     }
     case 'park-select': {
-      // Popup over the focused space: that one is parked last (see parkMany).
-      const focusedId = pluginContext(env).workspace_id ?? null;
-      const parkOne = async (workspaceId) => {
-        const result = await park({ client, store, workspaceId, codexResolver });
-        if (result.status === 'parked' || result.status === 'cleanup_failed') await syncBoard(client, store, env);
-        return result;
-      };
+      // The popup only picks. Parking runs in a detached `park-batch` process that reports through
+      // herdr notifications: herdr does not always repaint a popup on output, and the popup may be
+      // closed under us when its space is parked.
+      const focusedId = pluginContext(env).workspace_id ?? '-';
       await runSelect({
         load: () => listCandidates({ client, store, codexResolver }),
         input,
         output,
         size: () => ({ columns: output.columns || 100, rows: output.rows || 30 }),
-        park: (targets, onProgress) => parkMany({ targets, focusedId, parkOne, onProgress }),
+        park: async (targets) => {
+          const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'park-batch', focusedId, ...targets.map((t) => t.id)], {
+            env,
+            detached: true,
+            stdio: 'ignore',
+          });
+          child.unref();
+          return { background: true };
+        },
       });
+      return 0;
+    }
+    case 'park-batch': {
+      const [focusedArg, ...ids] = argv.slice(1);
+      if (ids.length === 0) {
+        console.error('park-batch needs at least one workspace id');
+        return 2;
+      }
+      const { workspaces } = await client.call('workspace.list');
+      const labelOf = (id) => workspaces.find((w) => w.workspace_id === id)?.label ?? id;
+      const result = await withParkLock(store, () =>
+        runBatch({
+          targets: ids.map((id) => ({ id, label: labelOf(id) })),
+          focusedId: focusedArg === '-' ? null : focusedArg,
+          parkOne: (workspaceId) => parkUnlocked({ client, store, workspaceId, codexResolver }),
+          notify: (title, body) => notify(client, title, body),
+          syncBoard: () => syncBoard(client, store, env),
+        }),
+      );
+      if (result?.status === 'failed') {
+        await notify(client, 'Spaces not parked', result.error);
+        return 1;
+      }
+      console.log(JSON.stringify(result));
       return 0;
     }
     case 'open-park-picker': {

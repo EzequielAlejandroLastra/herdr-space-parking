@@ -75,19 +75,23 @@ export async function inspectWorkspace({ client, snapshot, workspaceId, codexRes
   return { panes, processInfos, captured, blockers, warnings, fatal };
 }
 
-// One park at a time: two parks of the same space would otherwise both save a record for it.
-export async function park(args) {
-  const { store, deps = {} } = args;
+// One park (or one bulk batch) at a time: two parks of the same space would otherwise both save a
+// record for it. Resolves with fn's result, or { status: 'failed' } when another park holds the lock.
+export async function withParkLock(store, fn, { readTable = readProcessTable } = {}) {
   try {
-    return await withLock(join(dirname(store.dir), 'park.lock'), () => parkLocked(args), {
-      readTable: deps.lockReadTable ?? readProcessTable,
-      what: 'park',
-    });
+    return await withLock(join(dirname(store.dir), 'park.lock'), fn, { readTable, what: 'park' });
   } catch (err) {
     if (err.code === 'ELOCKED') return { status: 'failed', error: err.message };
     throw err;
   }
 }
+
+export async function park(args) {
+  return withParkLock(args.store, () => parkLocked(args), { readTable: args.deps?.lockReadTable });
+}
+
+// For callers that already hold the park lock (a bulk batch parks several spaces concurrently).
+export const parkUnlocked = (args) => parkLocked(args);
 
 async function parkLocked({ client, store, workspaceId, force = false, codexResolver, deps = {} }) {
   const {

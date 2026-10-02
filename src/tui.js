@@ -362,11 +362,14 @@ export function runSelect({ load, input, output, size, park }) {
       const chosen = marks.size > 0 ? all.filter((item) => marks.has(item.id)) : items[selected] ? [items[selected]] : [];
       if (chosen.length === 0) return;
       phase = 'parking';
-      results = await park(chosen.map(({ id, label }) => ({ id, label })), (done, total, label) => {
-        message = `Parking ${done}/${total}: ${label}…`;
+      const outcome = await park(chosen.map(({ id, label }) => ({ id, label })), (done, total, label) => {
+        message = `Parked ${done}/${total}: ${label}`;
         messageStyle = 'accent';
         draw();
       });
+      // The caller took the job elsewhere (a detached process reporting through notifications).
+      if (outcome?.background) { finish('background'); return; }
+      results = outcome;
       const parkedCount = results.filter((r) => r.status === 'parked' || r.status === 'cleanup_failed').length;
       all = results.map((r) => {
         const ok = r.status === 'parked' || r.status === 'cleanup_failed';
