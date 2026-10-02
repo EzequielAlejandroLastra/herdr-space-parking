@@ -24,6 +24,13 @@ contexts = ["workspace"]
 command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" park-force"]
 
 [[actions]]
+id = "park-many"
+title = "Park spaces…"
+description = "Choose several spaces and park them together"
+contexts = ["global"]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" open-park-picker"]
+
+[[actions]]
 id = "resume"
 title = "Resume parked space"
 description = "Pick a parked space and resume it"
@@ -44,3 +51,11 @@ placement = "popup"
 width = "85%"
 height = "75%"
 command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" tui --once"]
+
+[[panes]]
+id = "park-picker"
+title = "Park spaces"
+placement = "popup"
+width = "85%"
+height = "75%"
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" park-select"]

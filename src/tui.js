@@ -414,7 +414,7 @@ export function runSelect({ load, input, output, size, park }) {
             break;
           }
           case 'a': {
-            const idle = all.filter((item) => item.age === 'idle').map((item) => item.id);
+            const idle = items.filter((item) => item.age === 'idle').map((item) => item.id);
             const allMarked = idle.length > 0 && idle.every((id) => marks.has(id));
             marks.clear();
             if (!allMarked) idle.forEach((id) => marks.add(id));

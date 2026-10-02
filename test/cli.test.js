@@ -88,3 +88,28 @@ test('tui deletes through the browser and keeps the board in sync', async () => 
   assert.ok(store.get('rec-2'));
   assert.ok(client.calls.some((c) => c.method === 'workspace.rename' || c.method === 'workspace.list'));
 });
+
+test('open-park-picker opens the multi-select popup', async () => {
+  const { client, env } = setup();
+  client.call = (() => {
+    const original = client.call.bind(client);
+    return async (method, params) => (method === 'plugin.pane.open' ? (client.calls.push({ method, params }), { type: 'ok' }) : original(method, params));
+  })();
+  assert.equal(await main(['open-park-picker'], env, { client }), 0);
+  assert.deepEqual(client.calls.at(-1), { method: 'plugin.pane.open', params: { plugin_id: 'herdr-space-parking', entrypoint: 'park-picker' } });
+});
+
+test('park-select lists live spaces and closes on q without parking', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { client, env } = setup([]);
+  const base = client.call.bind(client);
+  client.call = async (method, params) => (method === 'session.snapshot' ? { snapshot: { workspaces: [], panes: [], tabs: [] } } : base(method, params));
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const done = main(['park-select'], env, { client, input, output });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  input.write('q');
+  assert.equal(await done, 0);
+  assert.ok(!client.calls.some((c) => c.method === 'workspace.close'));
+});

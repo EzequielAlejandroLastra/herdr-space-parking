@@ -206,3 +206,13 @@ test('select: q closes without parking anything', async () => {
   assert.deepEqual(await h.done, []);
   assert.deepEqual(h.parked, []);
 });
+
+test('select: a only marks idle spaces that match the current search', async () => {
+  const h = selectHarness([candidate('w1', 'api'), candidate('w2', 'hsp-one'), candidate('w3', 'hsp-two')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.keys('/', 'h', 's', 'p', '\r', 'a', '\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(h.parked, ['w2', 'w3']);
+  await h.keys('q');
+  await h.done;
+});

@@ -2,14 +2,15 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { boardSync, deleteParked, formatBoardList, isBoardWorkspace } from './board.js';
+import { listCandidates, parkMany } from './bulk.js';
 import { createCodexResolver } from './codex-sessions.js';
 import { createClient } from './herdr-client.js';
 import { park, reconcile } from './park.js';
 import { resume } from './resume.js';
 import { createStore } from './store.js';
-import { runTui } from './tui.js';
+import { runSelect, runTui } from './tui.js';
 
-const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | board-list | board-sync | open-picker';
+const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | park-select | board-list | board-sync | open-picker | open-park-picker';
 const BOARD_IDLE_MS = 60_000;
 
 function pluginContext(env) {
@@ -130,6 +131,27 @@ export async function main(argv, env = process.env, { client: injectedClient, in
         size: () => ({ columns: output.columns || 100, rows: output.rows || 30 }),
         idleMs: once ? 0 : BOARD_IDLE_MS,
       });
+      return 0;
+    }
+    case 'park-select': {
+      // Popup over the focused space: that one is parked last (see parkMany).
+      const focusedId = pluginContext(env).workspace_id ?? null;
+      const parkOne = async (workspaceId) => {
+        const result = await park({ client, store, workspaceId, codexResolver });
+        if (result.status === 'parked' || result.status === 'cleanup_failed') await syncBoard(client, store, env);
+        return result;
+      };
+      await runSelect({
+        load: () => listCandidates({ client, store, codexResolver }),
+        input,
+        output,
+        size: () => ({ columns: output.columns || 100, rows: output.rows || 30 }),
+        park: (targets, onProgress) => parkMany({ targets, focusedId, parkOne, onProgress }),
+      });
+      return 0;
+    }
+    case 'open-park-picker': {
+      await client.call('plugin.pane.open', { plugin_id: env.HERDR_PLUGIN_ID, entrypoint: 'park-picker' });
       return 0;
     }
     case 'board-list': {
