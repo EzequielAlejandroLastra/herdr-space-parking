@@ -19,9 +19,10 @@ function fakeCli(rows) {
 }
 
 function run(args, input, cli) {
+  // LINES pins the height the board would read from the terminal.
   const result = spawnSync('bash', [BOARD, ...args], {
     input,
-    env: { ...process.env, HSP_CLI: cli.cli, HERDR_PLUGIN_STATE_DIR: cli.stateDir },
+    env: { ...process.env, HSP_CLI: cli.cli, HERDR_PLUGIN_STATE_DIR: cli.stateDir, LINES: '24' },
     encoding: 'utf8',
     timeout: 10000,
   });
@@ -33,30 +34,25 @@ function run(args, input, cli) {
 const S = '\u001f';
 const ROWS = [['rec-1', 'keygen', '3h ago', '', '/work/keygen', '2 tabs · claude, codex'].join(S), ['rec-2', 'sizer', '3d ago', 'cleanup_failed', '/work/sizer', '1 tab'].join(S)];
 
-test('lists parked spaces with their details', () => {
-  const out = run(['--once'], '\n', fakeCli(ROWS));
-  assert.match(out.stdout, /1\. keygen\s+3h ago/);
-  assert.match(out.stdout, /\/work\/keygen\s+2 tabs · claude, codex/);
-  assert.match(out.stdout, /2\. sizer\s+3d ago\s+\[cleanup_failed\]/);
+test('the idle board shows a compact list and how to open the browser', () => {
+  const out = run([], '', fakeCli(ROWS));
+  assert.equal(out.status, 0);
+  assert.match(out.stdout, /Parked spaces \(2\)/);
+  assert.match(out.stdout, /keygen +3h ago +2 tabs · claude, codex/);
+  assert.match(out.stdout, /sizer +3d ago +1 tab +\[cleanup_failed\]/);
+  assert.match(out.stdout, /Press any key to browse, search, resume or delete/);
 });
 
-test('a number resumes that space', () => {
-  const out = run(['--once'], '2\n', fakeCli(ROWS));
-  assert.ok(out.calls.includes('resume rec-2'), out.calls.join('|'));
+test('any key opens the interactive browser', () => {
+  const out = run([], 'x', fakeCli(ROWS));
+  assert.ok(out.calls.includes('tui'), out.calls.join('|'));
 });
 
-test('d <number> deletes after confirmation, and only then', () => {
-  const cli = fakeCli(ROWS);
-  assert.ok(!run(['--once'], 'd 1\nn\n', cli).calls.some((c) => c.startsWith('delete')));
-  assert.ok(run(['--once'], 'd 1\ny\n', cli).calls.includes('delete rec-1'));
-});
-
-test('unknown numbers and failures are reported without acting', () => {
-  const out = run(['--once'], '9\n\n', fakeCli(ROWS));
-  assert.match(out.stdout, /No parked space number 9/);
-  assert.ok(!out.calls.some((c) => c.startsWith('resume')));
-  const failing = run(['--once'], '1\n\n', fakeCli([['bad', 'broken', '1m ago', '', '/x', '1 tab'].join(S)]));
-  assert.match(failing.stdout, /directory no longer exists: \/x/);
+test('a long list is cut to the terminal height with a count of the rest', () => {
+  const rows = Array.from({ length: 60 }, (_, i) => [`r${i}`, `space-${i}`, '1h ago', '', '/w', '1 tab'].join(S));
+  const out = run([], '', fakeCli(rows));
+  assert.match(out.stdout, /… and \d+ more/);
+  assert.doesNotMatch(out.stdout, /space-59/);
 });
 
 test('shows an empty state and the board loop ends when its input closes', () => {

@@ -7,8 +7,10 @@ import { createClient } from './herdr-client.js';
 import { park, reconcile } from './park.js';
 import { resume } from './resume.js';
 import { createStore } from './store.js';
+import { runTui } from './tui.js';
 
-const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | board-list | board-sync | open-picker';
+const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | board-list | board-sync | open-picker';
+const BOARD_IDLE_MS = 60_000;
 
 function pluginContext(env) {
   try {
@@ -39,7 +41,7 @@ export function summary(record) {
   return { id: record.id, label: record.label, cwd: record.cwd, state: record.state, parked_at: record.parked_at, tabs: record.tabs.length };
 }
 
-export async function main(argv, env = process.env, { client: injectedClient } = {}) {
+export async function main(argv, env = process.env, { client: injectedClient, input = process.stdin, output = process.stdout } = {}) {
   const [command, arg] = argv;
   if (['resume', 'delete'].includes(command) && !arg) {
     console.error(`${command} needs a parked space id`);
@@ -98,6 +100,36 @@ export async function main(argv, env = process.env, { client: injectedClient } =
     case 'list': {
       await reconcile({ client, store });
       console.log(JSON.stringify(store.list().map(summary), null, 2));
+      return 0;
+    }
+    case 'tui': {
+      // --once: the resume popup (no idle timeout); otherwise opened from the board, which gets the
+      // terminal back after a minute without keys so node does not stay resident.
+      const once = arg === '--once';
+      if (!once) await reconcile({ client, store });
+      const actions = {
+        resume: async (id) => {
+          const result = await resume({ client, store, id, codexResolver });
+          if (result.status === 'resumed') {
+            if (result.warnings.length > 0) await notify(client, 'Resumed with warnings', result.warnings.join('\n'));
+            await syncBoard(client, store, env);
+          }
+          return result;
+        },
+        remove: async (id) => {
+          const result = deleteParked({ store, id });
+          if (result.status === 'deleted') await syncBoard(client, store, env);
+          return result;
+        },
+      };
+      await runTui({
+        load: () => store.list(),
+        input,
+        output,
+        actions,
+        size: () => ({ columns: output.columns || 100, rows: output.rows || 30 }),
+        idleMs: once ? 0 : BOARD_IDLE_MS,
+      });
       return 0;
     }
     case 'board-list': {

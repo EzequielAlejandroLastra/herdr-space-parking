@@ -71,3 +71,20 @@ test('commands that need an id say so', async () => {
   } finally { console.error = original; }
   assert.match(errors.join('\n'), /resume needs a parked space id/);
 });
+
+test('tui deletes through the browser and keeps the board in sync', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { client, env, store } = setup([parkedRecord(), parkedRecord({ id: 'rec-2', label: 'sizer' })]);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const done = main(['tui', '--once'], env, { client, input, output });
+  for (const key of ['d', 'y', 'q']) {
+    input.write(key);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(await done, 0);
+  assert.equal(store.get('rec-1'), null);
+  assert.ok(store.get('rec-2'));
+  assert.ok(client.calls.some((c) => c.method === 'workspace.rename' || c.method === 'workspace.list'));
+});
