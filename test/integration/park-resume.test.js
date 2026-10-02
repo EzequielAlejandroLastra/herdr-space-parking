@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createClient } from '../../src/herdr-client.js';
 import { park } from '../../src/park.js';
 import { readProcessTable } from '../../src/proctree.js';
-import { resume } from '../../src/resume.js';
+import { resume, waitForShell } from '../../src/resume.js';
 import { createStore } from '../../src/store.js';
 import { sleep } from '../../src/util.js';
 
@@ -52,15 +52,17 @@ test('park releases background and setsid processes; resume restores the layout'
       root: { type: 'split', direction: 'right', ratio: 0.5, first: { type: 'pane', cwd: project }, second: { type: 'pane', cwd: project, label: 'side' } },
     });
     const paneId = layout.root.first.pane_id;
-    await sleep(1500);
+    assert.ok(await waitForShell(client, paneId, { timeoutMs: 15000 }), 'pane shell should become ready');
     // A background job, plus a python parent that stays alive and forks a child that leaves the pane's session.
     await client.call('pane.send_text', {
       pane_id: paneId,
       text: `sleep 1001 & python3 -c "import os,time; pid=os.fork(); os.setsid() if pid == 0 else None; time.sleep(1002)  # ${tag}" &\r`,
     });
-    await sleep(1500);
-
     let table = await readProcessTable();
+    for (let i = 0; i < 50 && tagged(table, tag).length < 2; i++) {
+      await sleep(200);
+      table = await readProcessTable();
+    }
     assert.ok(tagged(table, 'sleep 1001').length === 1, 'background job should be running');
     const pythons = tagged(table, tag);
     assert.equal(pythons.length, 2, 'python parent and setsid child should be running');
