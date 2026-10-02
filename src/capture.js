@@ -1,3 +1,5 @@
+import { threadNameFromTitle } from './codex-sessions.js';
+
 const SHELL_NAME = /^-?(zsh|bash|fish|sh|dash|ksh|tcsh|nu)$/;
 
 export function isShellProcess(name) {
@@ -48,6 +50,14 @@ function captureNode(node, ctx) {
     label: node.label ?? null,
     agent: pane.agent ?? null,
     agent_session: Object.hasOwn(ctx.agentSessions, node.pane_id) ? ctx.agentSessions[node.pane_id] : (pane.agent_session ?? null),
+    title: isAgent ? conversationTitle(pane) : null,
     was_running: isAgent ? null : foregroundCommand(ctx.processInfos[node.pane_id]),
   };
+}
+
+// The agent's conversation title, as the agent sets it in the terminal title.
+function conversationTitle(pane) {
+  const title = pane.terminal_title_stripped ?? pane.terminal_title ?? null;
+  if (!title) return null;
+  return pane.agent === 'codex' ? threadNameFromTitle(title) : title.trim() || null;
 }
