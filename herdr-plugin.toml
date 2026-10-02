@@ -1,0 +1,46 @@
+id = "herdr-space-parking"
+name = "herdr-space-parking"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Park spaces to release their agents and processes; resume them later with native Claude Code / Codex sessions."
+platforms = ["macos", "linux"]
+
+# Recreate or refresh the "Parked (N)" space after herdr starts (panes come back as plain shells).
+[[startup]]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" board-sync"]
+
+[[actions]]
+id = "park"
+title = "Park space"
+description = "Snapshot the focused space, stop all of its processes and close it"
+contexts = ["workspace"]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" park"]
+
+[[actions]]
+id = "park-force"
+title = "Park space (force)"
+description = "Park even if agents are working, commands are running or a Codex session is unknown"
+contexts = ["workspace"]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" park-force"]
+
+[[actions]]
+id = "resume"
+title = "Resume parked space"
+description = "Pick a parked space and resume it"
+contexts = ["global"]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" open-picker"]
+
+[[actions]]
+id = "list"
+title = "List parked spaces"
+description = "Print parked spaces as JSON"
+contexts = ["global"]
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" list"]
+
+[[panes]]
+id = "picker"
+title = "Parked spaces"
+placement = "popup"
+width = "70%"
+height = "60%"
+command = ["sh", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/bin/board.sh\" --once"]
