@@ -28,11 +28,13 @@ function agentsSummary(record) {
   return agents.length > 0 ? `${tabs} · ${agents.join(', ')}` : tabs;
 }
 
-// One line per record: id, label, age, state (empty when simply parked), cwd, summary.
+// One line per record: id, label, age, state (empty when simply parked), cwd, summary, separated by
+// U+001F: a tab would collapse empty fields in bash `read`.
+const SEP = '\u001f';
 export function formatBoardList(records, now = Date.now()) {
-  const clean = (value) => String(value ?? '').replace(/[\t\n]/g, ' ');
+  const clean = (value) => String(value ?? '').replace(/[\u001f\n]/g, ' ');
   return records
-    .map((r) => [r.id, r.label, ago(r.parked_at, now), r.state === 'parked' ? '' : r.state, r.cwd, agentsSummary(r)].map(clean).join('\t'))
+    .map((r) => [r.id, r.label, ago(r.parked_at, now), r.state === 'parked' ? '' : r.state, r.cwd, agentsSummary(r)].map(clean).join(SEP))
     .join('\n');
 }
 

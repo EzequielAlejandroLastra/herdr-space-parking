@@ -104,11 +104,11 @@ test('isBoardWorkspace recognises the saved board id', () => {
   assert.equal(isBoardWorkspace(setup().store, 'wP'), false);
 });
 
-test('formatBoardList prints one tab-separated row per record for the shell UI', () => {
+test('formatBoardList prints one unit-separated row per record for the shell UI', () => {
   const now = Date.parse('2026-10-02T13:00:00.000Z');
   const rows = formatBoardList([parkedRecord(), parkedRecord({ id: 'rec-2', label: 'sizer', state: 'cleanup_failed', parked_at: '2026-09-29T13:00:00.000Z' })], now).split('\n');
-  assert.deepEqual(rows[0].split('\t'), ['rec-1', 'keygen', '3h ago', '', '/work/keygen', '2 tabs · claude, codex']);
-  assert.deepEqual(rows[1].split('\t'), ['rec-2', 'sizer', '3d ago', 'cleanup_failed', '/work/keygen', '2 tabs · claude, codex']);
+  assert.deepEqual(rows[0].split('\u001f'), ['rec-1', 'keygen', '3h ago', '', '/work/keygen', '2 tabs · claude, codex']);
+  assert.deepEqual(rows[1].split('\u001f'), ['rec-2', 'sizer', '3d ago', 'cleanup_failed', '/work/keygen', '2 tabs · claude, codex']);
   assert.equal(formatBoardList([], now), '');
 });
 
