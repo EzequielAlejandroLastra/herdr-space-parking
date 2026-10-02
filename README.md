@@ -32,12 +32,23 @@ description = "resume parked space"
 
 ## Parked spaces in the sidebar
 
-While at least one space is parked, the plugin keeps a **"Parked (N)"** space at the end of the Spaces sidebar. Its pane lists every parked space (name, how long ago, directory, tabs and agents):
+While at least one space is parked, the plugin keeps a **"Parked (N)"** space at the end of the Spaces sidebar. At rest it shows a compact list (name, age, tabs and agents) from a ~2 MB bash loop that refreshes when something changes.
 
-- `<number>` + Enter resumes that space;
-- `d <number>` deletes it after a confirmation. Only the parked record is removed: the project folder and the Claude/Codex conversations stay on disk.
+Press any key there to open the **browser**:
 
-The same list opens as a popup with the "Resume parked space" action. The board is a single small bash process, and it disappears when nothing is parked. After a herdr restart, the plugin's startup hook rebuilds it.
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k`, `PgUp` `PgDn`, `g` `G` | Move |
+| `/` | Search by name, folder, branch, tab names, conversation titles or agents (every word must match) |
+| `Enter` | Resume the selected space |
+| `d` then `y` | Delete it (only the parked record; the project and the conversations stay on disk) |
+| `q` / `Esc` | Close |
+
+The right side shows the selected space's details: folder, branch and uncommitted files at park time, when it was parked, each tab with its agents and conversation titles, any command that was running, and warnings.
+
+The browser is a short-lived Node process. It gives the terminal back to the bash loop when closed or after a minute without keys, so nothing heavy stays resident. The "Resume parked space" action (`prefix+u`) opens the same browser as a popup.
+
+The board disappears when nothing is parked. After a herdr restart or a plugin update, the startup hook rebuilds it.
 
 ## What parking does
 
