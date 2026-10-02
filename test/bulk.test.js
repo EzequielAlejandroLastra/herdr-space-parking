@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { listCandidates, parkMany } from '../src/bulk.js';
+import { listCandidates, parkMany, runBatch } from '../src/bulk.js';
 import { createStore } from '../src/store.js';
 import { CODEX_REF, LAYOUTS, PROCESS_INFOS, fakeClient, makeSnapshot } from './fixtures.js';
 
@@ -54,21 +54,56 @@ test('a space that cannot be inspected is listed as blocked with the reason', as
   assert.match(other.blockers[0], /cannot inspect pane w5:p1/);
 });
 
-test('parkMany parks one by one, the focused space last, and reports each outcome', async () => {
-  const order = [];
+test('parkMany parks several spaces at once, up to the concurrency limit, and reports each outcome', async () => {
+  let inFlight = 0;
+  let peak = 0;
   const progress = [];
-  const outcomes = { w1: { status: 'parked' }, w2: { status: 'refused', blockers: ['w2:p1: claude is working'] }, w3: { status: 'failed', error: 'boom' } };
+  const outcomes = { w2: { status: 'refused', blockers: ['w2:p1: claude is working'] }, w3: { status: 'failed', error: 'boom' } };
+  const targets = ['w1', 'w2', 'w3', 'w4', 'w5', 'w6'].map((id) => ({ id, label: `space-${id}` }));
   const results = await parkMany({
-    targets: [{ id: 'w3', label: 'focused' }, { id: 'w1', label: 'one' }, { id: 'w2', label: 'two' }],
-    focusedId: 'w3',
-    parkOne: async (id) => { order.push(id); return outcomes[id]; },
-    onProgress: (done, total, label) => progress.push(`${done}/${total} ${label}`),
+    targets,
+    focusedId: 'w1',
+    concurrency: 4,
+    parkOne: async (id) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      return outcomes[id] ?? { status: 'parked' };
+    },
+    onProgress: (done, total) => progress.push(`${done}/${total}`),
   });
-  assert.deepEqual(order, ['w1', 'w2', 'w3']);
-  assert.deepEqual(progress, ['1/3 one', '2/3 two', '3/3 focused']);
-  assert.deepEqual(results, [
-    { id: 'w1', label: 'one', status: 'parked', reason: null },
-    { id: 'w2', label: 'two', status: 'refused', reason: 'w2:p1: claude is working' },
-    { id: 'w3', label: 'focused', status: 'failed', reason: 'boom' },
-  ]);
+  assert.equal(peak, 4);
+  assert.deepEqual(progress, ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6']);
+  assert.deepEqual(results.map((r) => r.id), ['w2', 'w3', 'w4', 'w5', 'w6', 'w1']);
+  assert.deepEqual(results.find((r) => r.id === 'w2'), { id: 'w2', label: 'space-w2', status: 'refused', reason: 'w2:p1: claude is working' });
+  assert.equal(results.find((r) => r.id === 'w3').reason, 'boom');
+});
+
+test('runBatch announces the batch, syncs the board once and notifies a summary', async () => {
+  const notes = [];
+  let syncs = 0;
+  const results = await runBatch({
+    targets: [{ id: 'w1', label: 'api' }, { id: 'w2', label: 'sizer' }],
+    focusedId: null,
+    parkOne: async (id) => (id === 'w2' ? { status: 'refused', blockers: ['w2:p1: claude is working'] } : { status: 'parked' }),
+    notify: async (title, body) => notes.push([title, body]),
+    syncBoard: async () => { syncs += 1; },
+  });
+  assert.equal(results.length, 2);
+  assert.equal(syncs, 1);
+  assert.deepEqual(notes[0], ['Parking 2 spaces…', 'api, sizer']);
+  assert.deepEqual(notes[1], ['Parked 1 of 2 spaces', 'Not parked:\n· sizer: w2:p1: claude is working']);
+});
+
+test('runBatch keeps the summary short when everything was parked', async () => {
+  const notes = [];
+  await runBatch({
+    targets: [{ id: 'w1', label: 'api' }],
+    focusedId: null,
+    parkOne: async () => ({ status: 'parked' }),
+    notify: async (title, body) => notes.push([title, body]),
+    syncBoard: async () => {},
+  });
+  assert.deepEqual(notes[1], ['Parked 1 space', 'api']);
 });

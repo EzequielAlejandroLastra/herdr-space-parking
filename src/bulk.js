@@ -6,10 +6,11 @@ import { tabsDetail } from './tui.js';
 
 export async function listCandidates({ client, store, codexResolver }) {
   const { snapshot } = await client.call('session.snapshot');
+  const workspaces = snapshot.workspaces.filter((w) => !isBoardWorkspace(store, w.workspace_id));
+  const inspections = await Promise.all(workspaces.map((w) => inspectWorkspace({ client, snapshot, workspaceId: w.workspace_id, codexResolver })));
   const items = [];
-  for (const workspace of snapshot.workspaces) {
-    if (isBoardWorkspace(store, workspace.workspace_id)) continue;
-    const inspection = await inspectWorkspace({ client, snapshot, workspaceId: workspace.workspace_id, codexResolver });
+  for (const [index, workspace] of workspaces.entries()) {
+    const inspection = inspections[index];
     if (inspection.fatal?.length > 0) continue;
     const blockers = inspection.error ? [inspection.error] : inspection.blockers;
     const warnings = inspection.warnings ?? [];
@@ -56,15 +57,40 @@ function reasonOf(result) {
   }
 }
 
-// Parks targets one at a time. The focused space goes last: closing it moves herdr's focus, and
-// everything else is already done if the caller (a popup over it) goes away with it.
-export async function parkMany({ targets, focusedId, parkOne, onProgress = () => {} }) {
+// Parks up to `concurrency` targets at a time (their settle and cleanup waits overlap). Results keep
+// the target order, with the focused space last: closing it moves herdr's focus.
+export async function parkMany({ targets, focusedId, parkOne, onProgress = () => {}, concurrency = 4 }) {
   const ordered = [...targets.filter((t) => t.id !== focusedId), ...targets.filter((t) => t.id === focusedId)];
-  const results = [];
-  for (const [index, target] of ordered.entries()) {
-    onProgress(index + 1, ordered.length, target.label);
-    const result = await parkOne(target.id);
-    results.push({ id: target.id, label: target.label, status: result.status, reason: reasonOf(result) });
+  const results = new Array(ordered.length);
+  let next = 0;
+  let done = 0;
+  async function worker() {
+    while (next < ordered.length) {
+      const index = next++;
+      const target = ordered[index];
+      const result = await parkOne(target.id);
+      results[index] = { id: target.id, label: target.label, status: result.status, reason: reasonOf(result) };
+      done += 1;
+      onProgress(done, ordered.length, target.label);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, ordered.length) }, worker));
+  return results;
+}
+
+const plural = (n) => `${n} space${n === 1 ? '' : 's'}`;
+
+// The whole bulk park, reported through herdr notifications (it runs detached from the popup).
+export async function runBatch({ targets, focusedId, parkOne, notify, syncBoard }) {
+  await notify(`Parking ${plural(targets.length)}…`, targets.map((t) => t.label).join(', '));
+  const results = await parkMany({ targets, focusedId, parkOne });
+  await syncBoard();
+  const parked = results.filter((r) => r.status === 'parked' || r.status === 'cleanup_failed');
+  const missed = results.filter((r) => !parked.includes(r));
+  if (missed.length === 0) {
+    await notify(`Parked ${plural(parked.length)}`, parked.map((r) => r.label).join(', '));
+  } else {
+    await notify(`Parked ${parked.length} of ${plural(results.length)}`, ['Not parked:', ...missed.map((r) => `· ${r.label}: ${r.reason}`)].join('\n'));
   }
   return results;
 }
