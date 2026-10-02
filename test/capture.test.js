@@ -53,3 +53,14 @@ test('captureWorkspace fails loudly on a missing layout or workspace', () => {
   assert.throws(() => captureWorkspace({ snapshot: makeSnapshot(), workspaceId: 'w4', layouts: {} }), /missing layout for tab/);
   assert.throws(() => captureWorkspace({ snapshot: makeSnapshot(), workspaceId: 'w9', layouts: LAYOUTS }), /workspace w9 not found/);
 });
+
+test('agent panes keep their conversation title (codex drops the " | dir" suffix)', () => {
+  const snapshot = makeSnapshot();
+  snapshot.panes[0].terminal_title_stripped = 'Pull request 387 review and merge';
+  const captured = captureWorkspace({ snapshot, workspaceId: 'w4', layouts: LAYOUTS, processInfos: PROCESS_INFOS });
+  const [claude] = leaves(captured.tabs[0].root);
+  const [codex, shell] = leaves(captured.tabs[1].root);
+  assert.equal(claude.title, 'Pull request 387 review and merge');
+  assert.equal(codex.title, 'Revisa PR #351');
+  assert.equal(shell.title, null);
+});
