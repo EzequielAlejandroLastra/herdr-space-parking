@@ -193,3 +193,25 @@ test('waitForShell gives up after the timeout', async () => {
   const client = fakeClient({ 'pane.process_info': () => ({ type: 'pane_process_info', process_info: { shell_pid: null, foreground_processes: [] } }) });
   assert.equal(await waitForShell(client, 'w9:p1', { timeoutMs: 50, settleMs: 0 }), false);
 });
+
+test('the partial workspace id is saved as soon as the workspace exists', async () => {
+  const ctx = setup();
+  const seen = [];
+  const original = ctx.client.call;
+  ctx.client.call = async (method, params) => {
+    if (method === 'layout.apply') seen.push(ctx.store.get('rec-1')?.resumed_workspace_id);
+    return original(method, params);
+  };
+  await run(ctx);
+  assert.equal(seen[0], 'w9');
+});
+
+test('a record resumed by another process meanwhile is not resumed again', async () => {
+  const ctx = setup();
+  const table = parsePs(`  ${process.pid} 1 ${T} node`);
+  const result = await run(ctx, 'rec-1', { readTable: async () => { ctx.store.remove('rec-1'); return table; } });
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /already resumed/);
+  assert.ok(!ctx.client.calls.some((c) => c.method === 'workspace.create'));
+  assert.equal(ctx.store.get('rec-1'), null);
+});

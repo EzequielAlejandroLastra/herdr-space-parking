@@ -234,3 +234,87 @@ test('gitInfo reports branch, dirty count and toplevel; null outside a repo', as
   assert.equal(await gitInfo(tmp()), null);
   assert.equal(await gitInfo(null), null);
 });
+
+test('a close that finds the workspace already gone drops the duplicate record', async () => {
+  const { HerdrError } = await import('../src/herdr-client.js');
+  const { client, deps, store } = setup({ closeError: new HerdrError('workspace_not_found', 'workspace w4 not found') });
+  const result = await park({ client, store, workspaceId: 'w4', codexResolver: verifiedCodex, deps });
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /already closed/);
+  assert.deepEqual(store.list(), []);
+});
+
+test('a park already running in another process is refused', async () => {
+  const { client, deps, store } = setup();
+  const { writeFileSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  writeFileSync(join(dirname(store.dir), 'park.lock'), JSON.stringify({ pid: 4242, start: T }));
+  const lockTable = async () => parsePs(`  ${process.pid} 1 ${T} node\n  4242 1 ${T} node cli.js park`);
+  const result = await park({ client, store, workspaceId: 'w4', codexResolver: verifiedCodex, deps: { ...deps, lockReadTable: lockTable } });
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /another park is in progress/);
+  assert.ok(!client.calls.some((c) => c.method === 'workspace.close'));
+});
+
+test('reconcile leaves a record alone when it cannot inspect the live workspace', async () => {
+  const store = createStore(tmp());
+  store.save(parkedRecord({ id: 'unsure', state: 'park_failed', shells: [ident(101, '-zsh')], pending_reap: [ident(103, 'node mcp')] }));
+  const { client, deps, reaped } = reconcileSetup({
+    workspaces: [{ workspace_id: 'w4', label: 'keygen' }],
+    panes: [{ pane_id: 'w4:p1', workspace_id: 'w4' }],
+    table: parsePs(`  103 1 ${T} node mcp`),
+  });
+  client.call = async (method, params) => {
+    if (method === 'pane.process_info') throw new Error('timeout');
+    return fakeClient({
+      'workspace.list': () => ({ workspaces: [{ workspace_id: 'w4', label: 'keygen' }] }),
+      'session.snapshot': () => ({ snapshot: { ...makeSnapshot(), panes: [{ pane_id: 'w4:p1', workspace_id: 'w4' }] } }),
+    }).call(method, params);
+  };
+  await reconcile({ client, store, deps });
+  assert.equal(store.get('unsure').state, 'park_failed');
+  assert.deepEqual(reaped, []);
+});
+
+test('reconcile recognises the original shell even after `exec zsh` changed its command', async () => {
+  const store = createStore(tmp());
+  store.save(parkedRecord({ id: 'aborted', state: 'parking', shells: [ident(101, '-zsh')], pending_reap: [ident(101, '-zsh')] }));
+  const { client, deps, reaped } = reconcileSetup({
+    workspaces: [{ workspace_id: 'w4', label: 'keygen' }],
+    panes: [{ pane_id: 'w4:p1', workspace_id: 'w4' }],
+    table: parsePs(`  101 1 ${T} zsh`),
+  });
+  await reconcile({ client, store, deps });
+  assert.equal(store.get('aborted'), null);
+  assert.deepEqual(reaped, []);
+});
+
+test('reconcile leaves a record alone when the workspace exists but no shells were recorded', async () => {
+  const store = createStore(tmp());
+  store.save(parkedRecord({ id: 'noshells', state: 'park_failed', shells: [], pending_reap: [ident(103, 'node mcp')] }));
+  const { client, deps, reaped } = reconcileSetup({
+    workspaces: [{ workspace_id: 'w4', label: 'keygen' }],
+    panes: [{ pane_id: 'w4:p1', workspace_id: 'w4' }],
+    table: parsePs(`  103 1 ${T} node mcp`),
+  });
+  await reconcile({ client, store, deps });
+  assert.equal(store.get('noshells').state, 'park_failed');
+  assert.deepEqual(reaped, []);
+});
+
+test('reconcile turns an interrupted resume into resume_failed unless a resume is still running', async () => {
+  const store = createStore(tmp());
+  store.save(parkedRecord({ id: 'stuck', state: 'resuming', resumed_workspace_id: 'w9' }));
+  const { client, deps } = reconcileSetup({ workspaces: [], table: parsePs(`  ${process.pid} 1 ${T} node`) });
+  await reconcile({ client, store, deps });
+  assert.equal(store.get('stuck').state, 'resume_failed');
+
+  const busy = createStore(tmp());
+  busy.save(parkedRecord({ id: 'running', state: 'resuming' }));
+  const { writeFileSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  writeFileSync(join(dirname(busy.dir), 'resume.lock'), JSON.stringify({ pid: 4242, start: T }));
+  const other = reconcileSetup({ workspaces: [], table: parsePs(`  4242 1 ${T} node cli.js picker`) });
+  await reconcile({ client: other.client, store: busy, deps: other.deps });
+  assert.equal(busy.get('running').state, 'resuming');
+});

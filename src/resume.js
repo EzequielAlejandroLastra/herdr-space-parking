@@ -106,14 +106,23 @@ export async function resume({ client, store, id, codexResolver, deps = {} }) {
 
   const warnings = [];
   let workspaceId = null;
+  let alreadyResumed = false;
   try {
     await withLock(join(dirname(store.dir), 'resume.lock'), async () => {
+      // Another run may have resumed (and removed) this record while we were checking it.
+      const current = store.get(id);
+      if (!current || !RESUMABLE_STATES.has(current.state)) {
+        alreadyResumed = true;
+        return;
+      }
       const { occupied, unidentifiedCodexCwds } = await liveOccupancy(client, codexResolver);
       record.state = 'resuming';
       store.save(record);
 
       const created = await client.call('workspace.create', { cwd: record.cwd, label: record.label, focus: true });
       workspaceId = created.workspace.workspace_id;
+      record.resumed_workspace_id = workspaceId;
+      store.save(record);
       let focusTabId = null;
 
       for (const [index, tab] of record.tabs.entries()) {
@@ -162,6 +171,7 @@ export async function resume({ client, store, id, codexResolver, deps = {} }) {
     return { status: 'failed', error: err.message, workspaceId, warnings };
   }
 
+  if (alreadyResumed) return { status: 'failed', error: 'this space was already resumed by another run' };
   store.remove(record.id);
   return { status: 'resumed', workspaceId, warnings };
 }
