@@ -4,7 +4,7 @@ import { captureWorkspace, leaves } from './capture.js';
 import { gitInfo } from './git-info.js';
 import { lockOwnerAlive, withLock } from './lock.js';
 import { preflight } from './preflight.js';
-import { descendants, readProcessTable, reap, survivors } from './proctree.js';
+import { DEFAULT_KEEP, descendants, readProcessTable, reap, survivors } from './proctree.js';
 import { sleep as realSleep } from './util.js';
 
 const DUPLICATE_CODEX = 'the same codex session was resolved for two panes';
@@ -22,6 +22,16 @@ function resolveCodexPanes(panes, codexResolver) {
     for (const paneId of paneIds) results[paneId] = { ref: null, method: 'unresolved', reason: DUPLICATE_CODEX };
   }
   return results;
+}
+
+// After the close, children such as MCP servers usually exit on their own within a few hundred ms.
+// Give them up to `settleMs`, checking every 100 ms, and stop as soon as only kept daemons remain.
+async function waitForExit(pending, { readTable, sleep, settleMs }) {
+  const watched = (pending ?? []).filter((proc) => !DEFAULT_KEEP.some((pattern) => pattern.test(proc.command)));
+  for (let waited = 0; waited < settleMs; waited += 100) {
+    if (survivors(watched, await readTable()).length === 0) return;
+    await sleep(100);
+  }
 }
 
 // Reap whatever the record still lists as pending and record the outcome on it.
@@ -148,7 +158,7 @@ async function parkLocked({ client, store, workspaceId, force = false, codexReso
     return { status: 'failed', error: record.error, record };
   }
 
-  await sleep(settleMs);
+  await waitForExit(record.pending_reap, { readTable, sleep, settleMs });
   await finishCleanup(record, { readTable, reapProcs, sleep });
   store.save(record);
   return { status: record.state, record, warnings: record.warnings };

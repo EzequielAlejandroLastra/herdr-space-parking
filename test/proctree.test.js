@@ -87,3 +87,11 @@ test('reap really terminates a live process', async () => {
   assert.deepEqual(result.killed.map((p) => p.pid), [child.pid]);
   assert.throws(() => process.kill(child.pid, 0));
 });
+
+test('reap returns at once when nothing is left to stop', async () => {
+  const sleeps = [];
+  const world = fakeWorld([]);
+  const result = await reap([{ pid: 30, start: T, command: 'gone' }], { kill: world.kill, readTable: world.readTable, sleep: async (ms) => sleeps.push(ms) });
+  assert.deepEqual(result, { killed: [], stillAlive: [] });
+  assert.deepEqual(sleeps, []);
+});

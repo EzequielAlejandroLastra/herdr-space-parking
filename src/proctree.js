@@ -70,6 +70,7 @@ export async function reap(
   };
 
   const live = survivors(targets, await readTable());
+  if (live.length === 0) return { killed: [], stillAlive: [] };
   signal(live, 'SIGTERM');
   await sleep(graceMs);
   signal(survivors(live, await readTable()), 'SIGKILL');
