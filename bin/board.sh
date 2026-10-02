@@ -106,8 +106,9 @@ while true; do
     last_signature=$(signature)
     render
   else
-    # >128 means the 3 s timeout fired; anything else is EOF (the pane or popup went away).
-    [ $? -gt 128 ] || exit 0
+    # bash 3.2 returns 1 both on the 3 s timeout and on EOF, so tell them apart by stdin:
+    # on a terminal it was the timeout (closing the pane sends SIGHUP); otherwise input ended.
+    [ -t 0 ] || exit 0
     current=$(signature)
     if [ "$current" != "$last_signature" ]; then
       last_signature=$current

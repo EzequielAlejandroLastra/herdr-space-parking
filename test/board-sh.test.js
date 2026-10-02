@@ -64,3 +64,22 @@ test('shows an empty state and the board loop ends when its input closes', () =>
   assert.equal(out.status, 0);
   assert.match(out.stdout, /No parked spaces/);
 });
+
+test('the board keeps running on a real terminal after its refresh timeout (bash 3.2 returns 1 on timeout)', async () => {
+  const { spawn } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+  const cli = fakeCli(ROWS);
+  const marker = join(cli.stateDir, 'board-exited');
+  const inner = `bash ${BOARD}; touch ${marker}`;
+  // `script` needs a real pipe on stdin (node's 'pipe' is a socket), so feed it from `sleep`.
+  const pty = process.platform === 'darwin' ? `script -q /dev/null bash -c '${inner}'` : `script -qc '${inner}' /dev/null`;
+  const child = spawn('sh', ['-c', `sleep 30 | ${pty}`], {
+    env: { ...process.env, HSP_CLI: cli.cli, HERDR_PLUGIN_STATE_DIR: cli.stateDir },
+    stdio: 'ignore',
+    detached: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 4500));
+  const exitedEarly = existsSync(marker);
+  process.kill(-child.pid, 'SIGKILL');
+  assert.equal(exitedEarly, false, 'board exited after its first 3 s refresh timeout');
+});
