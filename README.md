@@ -22,6 +22,12 @@ command = "herdr-space-parking.park"
 description = "park space"
 
 [[keys.command]]
+key = "prefix+shift+u"
+type = "plugin_action"
+command = "herdr-space-parking.park-many"
+description = "park several spaces"
+
+[[keys.command]]
 key = "prefix+u"
 type = "plugin_action"
 command = "herdr-space-parking.resume"
@@ -49,6 +55,20 @@ The right side shows the selected space's details: folder, branch and uncommitte
 The browser is a short-lived Node process. It gives the terminal back to the bash loop when closed or after a minute without keys, so nothing heavy stays resident. The "Resume parked space" action (`prefix+u`) opens the same browser as a popup.
 
 The board disappears when nothing is parked. After a herdr restart or a plugin update, the startup hook rebuilds it.
+
+## Parking several spaces at once
+
+"Park spaces…" (`herdr-space-parking.park-many`) opens a popup that lists every open space with its agents. Each space shows as `idle`, or as `⚠ blocked`, in which case the detail panel says why.
+
+| Key | Action |
+|---|---|
+| `Space` | Select or unselect the space |
+| `a` | Select every idle space that matches the current search (press again to clear) |
+| `/` | Search |
+| `Enter` | Park the selected spaces, or the current one if none is selected |
+| `q` | Close |
+
+On `Enter` the popup closes right away. Parking continues in the background, up to 4 spaces at a time (the space you were on goes last), and is reported through herdr notifications: one when it starts, and a summary of what was parked and what was not, and why. Three idle spaces take about a second. Blocked spaces are never forced in bulk: use "Park space (force)" on them one at a time. The "Parked" board and worktree spaces are not offered.
 
 ## What parking does
 

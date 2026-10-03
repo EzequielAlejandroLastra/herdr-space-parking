@@ -88,3 +88,43 @@ test('tui deletes through the browser and keeps the board in sync', async () => 
   assert.ok(store.get('rec-2'));
   assert.ok(client.calls.some((c) => c.method === 'workspace.rename' || c.method === 'workspace.list'));
 });
+
+test('open-park-picker opens the multi-select popup', async () => {
+  const { client, env } = setup();
+  client.call = (() => {
+    const original = client.call.bind(client);
+    return async (method, params) => (method === 'plugin.pane.open' ? (client.calls.push({ method, params }), { type: 'ok' }) : original(method, params));
+  })();
+  assert.equal(await main(['open-park-picker'], env, { client }), 0);
+  assert.deepEqual(client.calls.at(-1), { method: 'plugin.pane.open', params: { plugin_id: 'herdr-space-parking', entrypoint: 'park-picker' } });
+});
+
+test('park-select lists live spaces and closes on q without parking', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { client, env } = setup([]);
+  const base = client.call.bind(client);
+  client.call = async (method, params) => (method === 'session.snapshot' ? { snapshot: { workspaces: [], panes: [], tabs: [] } } : base(method, params));
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const done = main(['park-select'], env, { client, input, output });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  input.write('q');
+  assert.equal(await done, 0);
+  assert.ok(!client.calls.some((c) => c.method === 'workspace.close'));
+});
+
+test('park-batch parks the given spaces under the park lock and reports through notifications', async () => {
+  const { client, env } = setup([]);
+  const base = client.call.bind(client);
+  client.call = async (method, params) => {
+    if (method === 'session.snapshot') return { snapshot: { workspaces: [], panes: [], tabs: [] } };
+    if (method === 'workspace.list') { client.calls.push({ method, params }); return { workspaces: [{ workspace_id: 'wZ', label: 'ghost' }] }; }
+    return base(method, params);
+  };
+  assert.equal(await main(['park-batch', '-', 'wZ'], env, { client }), 0);
+  const notes = client.calls.filter((c) => c.method === 'notification.show').map((c) => c.params);
+  assert.deepEqual(notes[0], { title: 'Parking 1 space…', body: 'ghost' });
+  assert.equal(notes[1].title, 'Parked 0 of 1 space');
+  assert.match(notes[1].body, /ghost: workspace wZ not found/);
+});

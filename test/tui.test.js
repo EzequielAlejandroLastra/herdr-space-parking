@@ -136,3 +136,103 @@ test('the board gives the terminal back after a while without keys', async () =>
   const h = harness([record()], { idleMs: 50 });
   assert.equal(await h.done, 'idle');
 });
+
+import { runSelect } from '../src/tui.js';
+
+const candidate = (id, label, age = 'idle') => ({ id, label, age, agents: ['claude'], state: 'parked', blockers: age === 'idle' ? [] : ['busy'], detail: [{ text: label }], search: label });
+
+function selectHarness(items) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let screen = '';
+  output.on('data', (chunk) => { screen += chunk; });
+  const parked = [];
+  const done = runSelect({
+    load: async () => items,
+    input,
+    output,
+    size: () => ({ columns: 100, rows: 20 }),
+    park: async (targets, onProgress) => {
+      parked.push(...targets.map((t) => t.id));
+      targets.forEach((t, i) => onProgress(i + 1, targets.length, t.label));
+      return targets.map((t) => ({ id: t.id, label: t.label, status: t.id === 'w2' ? 'refused' : 'parked', reason: t.id === 'w2' ? 'claude is working' : null }));
+    },
+  });
+  const keys = async (...sequence) => {
+    for (const key of sequence) {
+      input.write(key);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  return { done, keys, parked, screen: () => stripAnsi(screen) };
+}
+
+test('select: space marks spaces, Enter parks the marked ones and shows a summary', async () => {
+  const h = selectHarness([candidate('w1', 'api'), candidate('w2', 'sizer', '⚠ blocked'), candidate('w3', 'infra')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.keys(' ', DOWN, ' ', DOWN, ' ', '\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(h.parked, ['w1', 'w2', 'w3']);
+  assert.match(h.screen(), /\[x\] api/);
+  assert.match(h.screen(), /2 parked · 1 not parked/);
+  assert.match(h.screen(), /sizer +not parked/);
+  await h.keys('x');
+  const results = await h.done;
+  assert.equal(results.length, 3);
+});
+
+test('select: a marks every idle space, Enter with nothing marked parks the current one', async () => {
+  const h = selectHarness([candidate('w1', 'api'), candidate('w2', 'sizer', '⚠ blocked'), candidate('w3', 'infra')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.keys('a', '\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(h.parked, ['w1', 'w3']);
+  await h.keys('q');
+  await h.done;
+
+  const single = selectHarness([candidate('w1', 'api'), candidate('w3', 'infra')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await single.keys(DOWN, '\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(single.parked, ['w3']);
+  await single.keys('q');
+  await single.done;
+});
+
+test('select: q closes without parking anything', async () => {
+  const h = selectHarness([candidate('w1', 'api')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.keys(' ', 'q');
+  assert.deepEqual(await h.done, []);
+  assert.deepEqual(h.parked, []);
+});
+
+test('select: a only marks idle spaces that match the current search', async () => {
+  const h = selectHarness([candidate('w1', 'api'), candidate('w2', 'hsp-one'), candidate('w3', 'hsp-two')]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await h.keys('/', 'h', 's', 'p', '\r', 'a', '\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(h.parked, ['w2', 'w3']);
+  await h.keys('q');
+  await h.done;
+});
+
+test('select: when parking continues in the background the screen closes right away', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const handedOff = [];
+  const done = runSelect({
+    load: async () => [candidate('w1', 'api'), candidate('w2', 'infra')],
+    input,
+    output,
+    size: () => ({ columns: 100, rows: 20 }),
+    park: async (targets) => { handedOff.push(...targets.map((t) => t.id)); return { background: true }; },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  input.write('a');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  input.write('\r');
+  assert.equal(await done, 'background');
+  assert.deepEqual(handedOff, ['w1', 'w2']);
+});

@@ -4,7 +4,7 @@ import { captureWorkspace, leaves } from './capture.js';
 import { gitInfo } from './git-info.js';
 import { lockOwnerAlive, withLock } from './lock.js';
 import { preflight } from './preflight.js';
-import { descendants, readProcessTable, reap, survivors } from './proctree.js';
+import { DEFAULT_KEEP, descendants, readProcessTable, reap, survivors } from './proctree.js';
 import { sleep as realSleep } from './util.js';
 
 const DUPLICATE_CODEX = 'the same codex session was resolved for two panes';
@@ -24,6 +24,16 @@ function resolveCodexPanes(panes, codexResolver) {
   return results;
 }
 
+// After the close, children such as MCP servers usually exit on their own within a few hundred ms.
+// Give them up to `settleMs`, checking every 100 ms, and stop as soon as only kept daemons remain.
+async function waitForExit(pending, { readTable, sleep, settleMs }) {
+  const watched = (pending ?? []).filter((proc) => !DEFAULT_KEEP.some((pattern) => pattern.test(proc.command)));
+  for (let waited = 0; waited < settleMs; waited += 100) {
+    if (survivors(watched, await readTable()).length === 0) return;
+    await sleep(100);
+  }
+}
+
 // Reap whatever the record still lists as pending and record the outcome on it.
 async function finishCleanup(record, { readTable, reapProcs, sleep }) {
   const leftovers = survivors(record.pending_reap ?? [], await readTable());
@@ -35,34 +45,10 @@ async function finishCleanup(record, { readTable, reapProcs, sleep }) {
   record.state = stillAlive.length > 0 ? 'cleanup_failed' : 'parked';
 }
 
-// One park at a time: two parks of the same space would otherwise both save a record for it.
-export async function park(args) {
-  const { store, deps = {} } = args;
-  try {
-    return await withLock(join(dirname(store.dir), 'park.lock'), () => parkLocked(args), {
-      readTable: deps.lockReadTable ?? readProcessTable,
-      what: 'park',
-    });
-  } catch (err) {
-    if (err.code === 'ELOCKED') return { status: 'failed', error: err.message };
-    throw err;
-  }
-}
-
-async function parkLocked({ client, store, workspaceId, force = false, codexResolver, deps = {} }) {
-  const {
-    readTable = readProcessTable,
-    reapProcs = reap,
-    git = gitInfo,
-    sleep = realSleep,
-    newId = randomUUID,
-    settleMs = 1500,
-  } = deps;
-
-  const { snapshot } = await client.call('session.snapshot');
-  if (!snapshot.workspaces.some((w) => w.workspace_id === workspaceId)) {
-    return { status: 'failed', error: `workspace ${workspaceId} not found` };
-  }
+// Everything park needs to know about a space before touching it: its layout, what runs in each
+// pane, its agent sessions and what would block parking it. Read-only.
+export async function inspectWorkspace({ client, snapshot, workspaceId, codexResolver }) {
+  if (!snapshot.workspaces.some((w) => w.workspace_id === workspaceId)) return { error: `workspace ${workspaceId} not found` };
   const panes = snapshot.panes.filter((p) => p.workspace_id === workspaceId);
   const tabs = snapshot.tabs.filter((t) => t.workspace_id === workspaceId);
 
@@ -76,9 +62,9 @@ async function parkLocked({ client, store, workspaceId, force = false, codexReso
     try {
       info = (await client.call('pane.process_info', { pane_id: pane.pane_id })).process_info;
     } catch (err) {
-      return { status: 'failed', error: `cannot inspect pane ${pane.pane_id}: ${err.message}` };
+      return { error: `cannot inspect pane ${pane.pane_id}: ${err.message}` };
     }
-    if (!info?.shell_pid) return { status: 'failed', error: `cannot inspect pane ${pane.pane_id}: no shell process` };
+    if (!info?.shell_pid) return { error: `cannot inspect pane ${pane.pane_id}: no shell process` };
     processInfos[pane.pane_id] = info;
   }
 
@@ -86,6 +72,41 @@ async function parkLocked({ client, store, workspaceId, force = false, codexReso
   const agentSessions = Object.fromEntries(Object.entries(codexResults).map(([paneId, result]) => [paneId, result.ref]));
   const captured = captureWorkspace({ snapshot, workspaceId, layouts, processInfos, agentSessions });
   const { blockers, warnings, fatal } = preflight({ snapshot, workspaceId, captured, codexResults });
+  return { panes, processInfos, captured, blockers, warnings, fatal };
+}
+
+// One park (or one bulk batch) at a time: two parks of the same space would otherwise both save a
+// record for it. Resolves with fn's result, or { status: 'failed' } when another park holds the lock.
+export async function withParkLock(store, fn, { readTable = readProcessTable } = {}) {
+  try {
+    return await withLock(join(dirname(store.dir), 'park.lock'), fn, { readTable, what: 'park' });
+  } catch (err) {
+    if (err.code === 'ELOCKED') return { status: 'failed', error: err.message };
+    throw err;
+  }
+}
+
+export async function park(args) {
+  return withParkLock(args.store, () => parkLocked(args), { readTable: args.deps?.lockReadTable });
+}
+
+// For callers that already hold the park lock (a bulk batch parks several spaces concurrently).
+export const parkUnlocked = (args) => parkLocked(args);
+
+async function parkLocked({ client, store, workspaceId, force = false, codexResolver, deps = {} }) {
+  const {
+    readTable = readProcessTable,
+    reapProcs = reap,
+    git = gitInfo,
+    sleep = realSleep,
+    newId = randomUUID,
+    settleMs = 1500,
+  } = deps;
+
+  const { snapshot } = await client.call('session.snapshot');
+  const inspection = await inspectWorkspace({ client, snapshot, workspaceId, codexResolver });
+  if (inspection.error) return { status: 'failed', error: inspection.error };
+  const { panes, processInfos, captured, blockers, warnings, fatal } = inspection;
   if (fatal.length > 0) return { status: 'refused', forceable: false, blockers: fatal, warnings };
   if (blockers.length > 0 && !force) return { status: 'refused', forceable: true, blockers, warnings };
 
@@ -141,7 +162,7 @@ async function parkLocked({ client, store, workspaceId, force = false, codexReso
     return { status: 'failed', error: record.error, record };
   }
 
-  await sleep(settleMs);
+  await waitForExit(record.pending_reap, { readTable, sleep, settleMs });
   await finishCleanup(record, { readTable, reapProcs, sleep });
   store.save(record);
   return { status: record.state, record, warnings: record.warnings };

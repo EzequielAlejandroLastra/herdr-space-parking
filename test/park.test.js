@@ -318,3 +318,24 @@ test('reconcile turns an interrupted resume into resume_failed unless a resume i
   await reconcile({ client: other.client, store: busy, deps: other.deps });
   assert.equal(busy.get('running').state, 'resuming');
 });
+
+test('park does not wait once everything but the shared codex daemon is gone', async () => {
+  const { client, deps, store } = setup();
+  const onlyDaemon = parsePs(`  203 1 ${T} /x/app-server-daemon/bin/codex app-server daemon`);
+  let reads = 0;
+  const sleeps = [];
+  const result = await park({
+    client, store, workspaceId: 'w4', codexResolver: verifiedCodex,
+    deps: { ...deps, readTable: async () => (reads++ === 0 ? BEFORE : onlyDaemon), sleep: async (ms) => sleeps.push(ms) },
+  });
+  assert.equal(result.status, 'parked');
+  assert.deepEqual(sleeps, []);
+});
+
+test('park waits for exiting processes in short steps, up to the settle time', async () => {
+  const { client, deps, store } = setup();
+  const sleeps = [];
+  await park({ client, store, workspaceId: 'w4', codexResolver: verifiedCodex, deps: { ...deps, sleep: async (ms) => sleeps.push(ms) } });
+  assert.ok(sleeps.length > 1 && sleeps.every((ms) => ms <= 100), JSON.stringify(sleeps));
+  assert.ok(sleeps.reduce((a, b) => a + b, 0) <= 1500);
+});
