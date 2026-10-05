@@ -9,6 +9,19 @@ platforms = ["macos", "linux"]
 [[startup]]
 command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" board-sync"]
 
+# Keep the "Parked (N)" space at the end of the sidebar when spaces are created or moved.
+[[events]]
+on = "workspace.created"
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" board-last"]
+
+[[events]]
+on = "workspace.moved"
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" board-last"]
+
+[[events]]
+on = "workspace.reordered"
+command = ["sh", "-c", "exec node \"$HERDR_PLUGIN_ROOT/src/cli.js\" board-last"]
+
 [[actions]]
 id = "park"
 title = "Park space"

@@ -145,3 +145,23 @@ test('every sync leaves a single fresh refresh marker for the board loop', async
   assert.equal(second.length, 1);
   assert.notEqual(first[0], second[0]);
 });
+
+test('keepBoardLast moves the board back to the end when another space lands after it', async () => {
+  const { keepBoardLast } = await import('../src/board.js');
+  const { store, client } = setup({
+    board: { workspace_id: 'wP', pane_id: 'wP:p2', version: boardVersion() },
+    workspaces: [{ workspace_id: 'w1', label: 'api' }, { workspace_id: 'wP', label: 'Parked (1)' }, { workspace_id: 'w9', label: 'new one' }],
+  });
+  assert.equal(await keepBoardLast({ client, store }), true);
+  // herdr's insert_index counts positions before the move, so the end is workspaces.length.
+  assert.deepEqual(client.calls.at(-1), { method: 'workspace.move', params: { workspace_id: 'wP', insert_index: 3 } });
+});
+
+test('keepBoardLast does nothing when the board is already last or does not exist', async () => {
+  const { keepBoardLast } = await import('../src/board.js');
+  const last = setup({ board: { workspace_id: 'wP', pane_id: 'wP:p2' }, workspaces: [{ workspace_id: 'w1', label: 'api' }, { workspace_id: 'wP', label: 'Parked (1)' }] });
+  assert.equal(await keepBoardLast({ client: last.client, store: last.store }), false);
+  const none = setup({ workspaces: [{ workspace_id: 'w1', label: 'api' }] });
+  assert.equal(await keepBoardLast({ client: none.client, store: none.store }), false);
+  assert.ok(![...last.client.calls, ...none.client.calls].some((c) => c.method === 'workspace.move'));
+});
