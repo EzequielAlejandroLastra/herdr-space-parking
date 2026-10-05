@@ -22,11 +22,12 @@ export function captureWorkspace({ snapshot, workspaceId, layouts, processInfos 
   const panesById = new Map(snapshot.panes.filter((p) => p.workspace_id === workspaceId).map((p) => [p.pane_id, p]));
   const tabs = snapshot.tabs.filter((t) => t.workspace_id === workspaceId).sort((a, b) => a.number - b.number);
 
-  const capturedTabs = tabs.map((tab) => {
+  const capturedTabs = tabs.map((tab, index) => {
     const layout = layouts[tab.tab_id];
     if (!layout) throw new Error(`missing layout for tab ${tab.tab_id}`);
     return {
-      label: tab.label ?? null,
+      // herdr names unnamed tabs after their position; re-applying that would freeze it as a custom name.
+      label: tab.label && tab.label !== String(index + 1) ? tab.label : null,
       focused: tab.tab_id === workspace.active_tab_id,
       root: captureNode(layout.root, { panesById, processInfos, agentSessions }),
     };

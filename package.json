@@ -1,11 +1,20 @@
 {
   "name": "herdr-space-parking",
   "version": "0.1.0",
+  "description": "herdr plugin: park spaces to free their agents and processes, resume them later with native Claude Code / Codex sessions.",
+  "license": "MIT",
+  "author": "Ezequiel Lastra",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EzequielAlejandroLastra/herdr-space-parking"
+  },
   "private": true,
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "test": "node --test",
-    "test:integration": "HSP_INTEGRATION=1 node --test test/integration/park-resume.test.js"
+    "test": "node scripts/run-tests.mjs",
+    "test:integration": "HSP_INTEGRATION=1 node scripts/run-tests.mjs test/integration/park-resume.test.js"
   }
 }

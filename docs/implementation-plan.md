@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node ≥18 ESM, zero dependencies, `node:test` + `node:assert/strict`, herdr 0.9.0 socket API.
 
-**Spec:** `docs/superpowers/specs/2026-10-02-space-parking-design.md`
+**Spec:** `docs/design.md`
 
 ## Global Constraints
 

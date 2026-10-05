@@ -141,6 +141,11 @@ export async function resume({ client, store, id, codexResolver, deps = {} }) {
             if (leaf.agent) warnings.push(`${leaf.agent} in tab "${tab.label}" restored as a shell (no resumable session)`);
             continue;
           }
+          // Claude and Codex find their sessions by directory; the fallback folder would not have it.
+          if (leaf.cwd && !cwdExists(leaf.cwd)) {
+            warnings.push(`${leaf.agent} session not resumed: ${leaf.cwd} no longer exists`);
+            continue;
+          }
           const sessionId = leaf.agent_session.value;
           if (occupied.has(sessionId)) {
             warnings.push(`${leaf.agent} session ${sessionId} is already open in a herdr pane; not resumed`);

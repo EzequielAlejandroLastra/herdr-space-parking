@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { boardSync, deleteParked, formatBoardList, isBoardWorkspace } from './board.js';
+import { boardSync, deleteParked, formatBoardList, isBoardWorkspace, keepBoardLast } from './board.js';
 import { listCandidates, runBatch } from './bulk.js';
 import { createCodexResolver } from './codex-sessions.js';
 import { createClient } from './herdr-client.js';
@@ -11,7 +11,7 @@ import { resume } from './resume.js';
 import { createStore } from './store.js';
 import { runSelect, runTui } from './tui.js';
 
-const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | park-select | park-batch <focused|-> <id>... | board-list | board-sync | open-picker | open-park-picker';
+const USAGE = 'expected park | park-force | resume <id> | delete <id> | list | tui [--once] | park-select | park-batch <focused|-> <id>... | board-list | board-sync | board-last | open-picker | open-park-picker';
 const BOARD_IDLE_MS = 60_000;
 
 function pluginContext(env) {
@@ -115,6 +115,9 @@ export async function main(argv, env = process.env, { client: injectedClient, in
           if (result.status === 'resumed') {
             if (result.warnings.length > 0) await notify(client, 'Resumed with warnings', result.warnings.join('\n'));
             await syncBoard(client, store, env);
+          } else {
+            // herdr may not repaint a popup until the next key, so the error goes out as a toast too.
+            await notify(client, 'Resume failed', result.error);
           }
           return result;
         },
@@ -186,6 +189,10 @@ export async function main(argv, env = process.env, { client: injectedClient, in
     }
     case 'board-list': {
       console.log(formatBoardList(store.list()));
+      return 0;
+    }
+    case 'board-last': {
+      await keepBoardLast({ client, store });
       return 0;
     }
     case 'board-sync': {

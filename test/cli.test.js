@@ -128,3 +128,20 @@ test('park-batch parks the given spaces under the park lock and reports through 
   assert.equal(notes[1].title, 'Parked 0 of 1 space');
   assert.match(notes[1].body, /ghost: workspace wZ not found/);
 });
+
+test('a failed resume from the browser is also reported as a notification', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { client, env } = setup([parkedRecord({ cwd: '/definitely/missing/dir' })]);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.resume();
+  const done = main(['tui', '--once'], env, { client, input, output });
+  for (const key of ['\r', 'q']) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    input.write(key);
+  }
+  assert.equal(await done, 0);
+  const note = client.calls.find((c) => c.method === 'notification.show');
+  assert.equal(note?.params.title, 'Resume failed');
+  assert.match(note.params.body, /directory no longer exists/);
+});

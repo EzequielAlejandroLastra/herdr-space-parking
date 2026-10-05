@@ -121,3 +121,16 @@ export async function boardSync({ client, store, env }) {
   touchRefresh(store);
   return { workspaceId: board.workspace_id };
 }
+
+// New spaces (created, resumed or dragged) can land below the board; put it back at the end.
+// Called from herdr workspace events. Our own move fires workspace.moved again, which is then a no-op.
+export async function keepBoardLast({ client, store }) {
+  const saved = readBoard(store);
+  if (!saved) return false;
+  const { workspaces } = await client.call('workspace.list');
+  const index = workspaces.findIndex((w) => w.workspace_id === saved.workspace_id && String(w.label).startsWith(BOARD_PREFIX));
+  if (index === -1 || index === workspaces.length - 1) return false;
+  // insert_index counts positions before the move (herdr move_workspace), so the end is length.
+  await client.call('workspace.move', { workspace_id: saved.workspace_id, insert_index: workspaces.length });
+  return true;
+}

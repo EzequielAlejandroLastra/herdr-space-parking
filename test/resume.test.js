@@ -215,3 +215,12 @@ test('a record resumed by another process meanwhile is not resumed again', async
   assert.ok(!ctx.client.calls.some((c) => c.method === 'workspace.create'));
   assert.equal(ctx.store.get('rec-1'), null);
 });
+
+test('an agent whose folder is gone is not resumed from the wrong directory', async () => {
+  const record = parkedRecord();
+  record.tabs[0].root.cwd = `${KEYGEN}/deleted`;
+  const ctx = setup({ record });
+  const result = await run(ctx, 'rec-1', { cwdExists: (p) => p === KEYGEN });
+  assert.ok(!sent(ctx.client).some((s) => s.text.startsWith('claude')));
+  assert.ok(result.warnings.some((w) => w.includes(`${KEYGEN}/deleted no longer exists`)));
+});
