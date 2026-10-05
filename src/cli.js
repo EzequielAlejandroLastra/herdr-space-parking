@@ -115,6 +115,9 @@ export async function main(argv, env = process.env, { client: injectedClient, in
           if (result.status === 'resumed') {
             if (result.warnings.length > 0) await notify(client, 'Resumed with warnings', result.warnings.join('\n'));
             await syncBoard(client, store, env);
+          } else {
+            // herdr may not repaint a popup until the next key, so the error goes out as a toast too.
+            await notify(client, 'Resume failed', result.error);
           }
           return result;
         },

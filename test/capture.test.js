@@ -64,3 +64,11 @@ test('agent panes keep their conversation title (codex drops the " | dir" suffix
   assert.equal(codex.title, 'Revisa PR #351');
   assert.equal(shell.title, null);
 });
+
+test('herdr auto tab names (the tab position) are not kept as custom labels', () => {
+  const snapshot = makeSnapshot();
+  snapshot.tabs.find((t) => t.tab_id === 'w4:t1').label = '1';
+  snapshot.tabs.find((t) => t.tab_id === 'w4:t2').label = '7';
+  const captured = captureWorkspace({ snapshot, workspaceId: 'w4', layouts: LAYOUTS, processInfos: PROCESS_INFOS });
+  assert.deepEqual(captured.tabs.map((t) => t.label), [null, '7']);
+});
