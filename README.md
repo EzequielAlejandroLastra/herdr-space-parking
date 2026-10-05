@@ -2,17 +2,33 @@
 
 Park herdr Spaces you aren't using. Parking stops every process in the Space and closes it: shells, Claude Code, Codex and their MCP servers. Resume it later with the same tabs, splits and Claude Code / Codex conversations.
 
+## Why
+
+Every open herdr Space keeps its shells, its Claude Code / Codex processes and their MCP servers alive, even when you haven't touched it in days. That is often hundreds of MB per Space. Parking a Space frees all of it; resuming it brings back the layout and the same agent conversations.
+
+Compared with [herdr-park](https://github.com/prabhatgmp/herdr-park), which parks or hibernates individual **tabs**, this plugin parks whole **Spaces**: nothing of a parked Space stays running. It also adds a "Parked (N)" board in the sidebar and bulk parking.
+
 ## Install
 
 ```sh
-herdr plugin link /path/to/herdr-space-parking
+herdr plugin install EzequielAlejandroLastra/herdr-space-parking
+herdr integration install claude   # needed so herdr knows each Claude session id
+herdr integration install codex    # optional, for Codex panes
 ```
 
-Requires herdr ≥ 0.9.0 and Node ≥ 18 on the herdr server's `PATH`. macOS and Linux.
+Requirements:
+
+- herdr ≥ 0.9.0;
+- Node.js ≥ 18 on the `PATH` of the herdr server;
+- bash.
+
+Tested on macOS with herdr 0.9.0. On Linux the test suite passes, but the plugin has not been tried against a live herdr yet: reports welcome.
+
+Then add keybindings (below) and run `herdr server reload-config`.
 
 ## Keybindings
 
-Add to `~/.config/herdr/config.toml`, choosing keys that are free in your setup:
+Add to `~/.config/herdr/config.toml` (these keys are free in herdr's defaults):
 
 ```toml
 [[keys.command]]
@@ -32,6 +48,12 @@ key = "prefix+u"
 type = "plugin_action"
 command = "herdr-space-parking.resume"
 description = "resume parked space"
+
+[[keys.command]]
+key = "prefix+shift+a"
+type = "plugin_action"
+command = "herdr-space-parking.park-force"
+description = "park space (force)"
 ```
 
 `herdr-space-parking.park-force` parks even when the Space has blockers. The CLI forms are `herdr plugin action invoke herdr-space-parking.park` and `herdr plugin action invoke herdr-space-parking.list`.
@@ -54,7 +76,7 @@ The right side shows the selected space's details: folder, branch and uncommitte
 
 The browser is a short-lived Node process. It gives the terminal back to the bash loop when closed or after a minute without keys, so nothing heavy stays resident. The "Resume parked space" action (`prefix+u`) opens the same browser as a popup.
 
-The board disappears when nothing is parked. After a herdr restart or a plugin update, the startup hook rebuilds it.
+The board stays at the end of the sidebar and disappears when nothing is parked. After a herdr restart or a plugin update, the startup hook rebuilds it.
 
 ## Parking several spaces at once
 
